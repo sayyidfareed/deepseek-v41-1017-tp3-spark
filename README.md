@@ -19,7 +19,19 @@ DeepSeek 1017 on three 128 GB NVIDIA GB10 systems, using **Mia EAQ v1 EXL3 2.9 b
 | HumanEval | **95.1% · 156/164** |
 | HumanEvalPlus-Mini | **89.6% · 147/164** |
 
-Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; they are not a matched scaling comparison or a guarantee for long contexts. [Protocol and raw results →](benchmarks/README.md)
+Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; all results above predate the scheduling fixes below. They are not a matched scaling comparison or a guarantee for long contexts. [Protocol and results →](benchmarks/README.md)
+
+## Scheduling fixes
+
+Text and image-bearing prompts now yield between bounded prefill chunks, giving existing streams the configured 250 ms decode allowance. Contended chunks are capped at 2,048 rows; solo prefill keeps its 4,096-row maximum. Image fills retain exclusive ownership of their image state. Streaming and cancellation remain enabled.
+
+| Mixed-workload check | Result |
+|---|---:|
+| Cold 131K text + 3 warm streams: longest warm SSE gap | **1.14 s** |
+| Cold 131K text + 7 warm streams: longest warm SSE gap | **1.21 s** |
+| Cold 32K image history + 3 streaming peers: longest peer SSE gap | **1.68 s** |
+
+These are single synthetic runs, not matched before/after speedups. Text cases tested the text repair; the image case tested both repairs. All peers progressed during the cold prefill. Some intermittent slowdowns remain unresolved. [Test details →](benchmarks/README.md#mixed-prefill-and-streaming)
 
 ## Setup
 

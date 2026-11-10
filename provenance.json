@@ -342,15 +342,15 @@
     {
       "path": "zig/src/core/lane_host.zig",
       "base_sha256": "77cc023e2e9bec42e52d781e388cdabc9e085a32b7b99fd47bcac5820b8056df",
-      "deployed_source_sha256": "53c5e6bbcd2ab2a3c85da52d604802e4d82e4d9ad093641e8157e0f8fc676ecb",
-      "export_sha256": "393a1366b89d5f4b64b3ee4ec9c53825bd75b2764f902f5117ae0c188c10f76b",
+      "deployed_source_sha256": "ece38ee0174091b706e67c4e8b2ce0fa3052d3239954dfbfa99f7ae352a89c94",
+      "export_sha256": "6231bc01a5e2d785ef94d35c73896b95de42bbb34fe8795f2e69b2c32f7bbb9b",
       "notice_added": true
     },
     {
       "path": "zig/src/core/lane_host_fill_test.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "82e5fad303b833da34adb18927b98e7d7eb2b8937d799f0c87544b07eb04082a",
-      "export_sha256": "88d6eb2b7ecffdc303a8b19e9c0c0848c37d73f736ac7a3a213c3daf3ab25be4",
+      "deployed_source_sha256": "4c88374330f681dab0ec3c40894d7887da38afb828fec1ceaf5148e84dd2be06",
+      "export_sha256": "0a2821004806497437d3395e513e2401239255ceeb4fc2aec54f0ddd4c19024e",
       "notice_added": true
     },
     {
@@ -419,8 +419,8 @@
     {
       "path": "zig/src/core/lanes/engine.zig",
       "base_sha256": "fb379e802a3b38da33114bb8fc9e33d21ca8a56b9401f1810c1e00cebacb6b5e",
-      "deployed_source_sha256": "3ab518e99c0696eaed0274320c4a3050c2d2209ec85996f778ff039c0cf6859d",
-      "export_sha256": "d9896f0f26eec8b3813a6184fd163d83ed024499c248045c8fa20fa691c5288e",
+      "deployed_source_sha256": "3a3f9c9bae9da252da4c86407bd670b21094fdbe98c9244f7d4191c740d58ef6",
+      "export_sha256": "2f93fbdd06b69fccbf6a096b3a40fe471433e44b9db60082eef4d5308736033f",
       "notice_added": true
     },
     {
@@ -468,8 +468,8 @@
     {
       "path": "zig/src/core/lanes/stream.zig",
       "base_sha256": "aeb2c8f2a2ed4b237bb4f8337f72b6f0a77b60c1a8fb0b02f9f5d3885ad7c5cb",
-      "deployed_source_sha256": "c6bafb56f3f9f70e8e26e1cabf9e149684718e2d9d4ccbe01419efe8aad07e98",
-      "export_sha256": "b26c482061e2c11237ad601421fb789c1c8618b64bcbb20e796a105fd3f47f0f",
+      "deployed_source_sha256": "997389c49fafd766fabd12d0176225f38ffa8010b5153575e5902c39af5bf3ef",
+      "export_sha256": "668cc1208f40a8cf7582425b2ae435a2d73677ff055c8d3d96c7510da323cc5c",
       "notice_added": true
     },
     {
@@ -762,8 +762,8 @@
     {
       "path": "zig/src/families/dsv41/lanes.zig",
       "base_sha256": "84ab9469613996041830762ea1cd249f15b48526869e399b7d6fcc2e183e8695",
-      "deployed_source_sha256": "0f0d61f1ad211acf781748a1639de63dedaa1ff533b74f9502f34794b4d5c385",
-      "export_sha256": "188a2f214a9681187d9881a5b3d8116f9f400bc6369af7a2ff167f20b1964bda",
+      "deployed_source_sha256": "934c7e2368f6cfc98b193570102920940b0b1af3ee85b915e420134b25584369",
+      "export_sha256": "5f2079282bf06cd0a18b0d3f80bdff6e9e12431e1bc1fec5c12a0966c01246f9",
       "notice_added": true
     },
     {

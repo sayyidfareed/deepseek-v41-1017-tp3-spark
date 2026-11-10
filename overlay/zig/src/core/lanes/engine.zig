@@ -146,7 +146,10 @@ pub const Engine = struct {
             if (s.structure != null and !structure.served(e.backend, e.cfg)) return error.StructureUnsupported;
             try trail.event(e, &.{ f("ev", str("add")), f("stream", str(s.id)) });
         }
-        const done = try e.piece(s, if (s.images.len == 0) 1 else std.math.maxInt(u32));
+        s.prefill_contended = e.runnableCount() > 0;
+        // The host keeps image fills exclusive until completion; decode rounds may
+        // run between their pieces without opening another image/model view.
+        const done = try e.piece(s, 1);
         if (done) try e.started(s);
         return done;
     }

@@ -859,7 +859,7 @@ pub const Lanes = struct {
             const start = f.start;
             const len = f.len;
             if (start > 0 and s.isCancelled()) return error.Cancelled;
-            const n = prefillChunkRows(start, len, m.prefill_rows, f.last_end, s.reuse.marks);
+            const n = prefillChunkRows(start, len, m.prefill_rows, f.last_end, s.reuse.marks, m.prefill_admission and s.prefill_contended);
             if (try self.begin(.fill_chunk)) {
                 try self.wire.int(self.gpa, u64, start);
                 try self.wire.int(self.gpa, u32, @intCast(n));
@@ -2811,8 +2811,8 @@ test "spill + shard: an owner-sharded reserve lands only on the follower planner
 
 
 /// A 4K compute tile may span two 2K cache blocks, but never skips a requested checkpoint.
-fn prefillChunkRows(start: usize, len: usize, compute: usize, last_end: usize, marks: []const u32) usize {
-    var end = start + @min(compute, len - start);
+fn prefillChunkRows(start: usize, len: usize, compute: usize, last_end: usize, marks: []const u32, contended: bool) usize {
+    var end = start + @min(if (contended) @min(compute, model.chunk_rows) else compute, len - start);
     if (last_end > start and last_end < end) end = last_end;
     for (marks) |mark| {
         const boundary = mark / model.chunk_rows * model.chunk_rows;
@@ -2821,17 +2821,19 @@ fn prefillChunkRows(start: usize, len: usize, compute: usize, last_end: usize, m
     return end - start;
 }
 
-test "4K prompt compute preserves 2K cache checkpoints and final tails" {
-    try std.testing.expectEqual(@as(usize, 4096), prefillChunkRows(0, 16384, 4096, 14336, &.{}));
-    try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(0, 16384, 4096, 14336, &.{ 2049, 8192 }));
-    try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(12288, 16384, 4096, 14336, &.{}));
-    try std.testing.expectEqual(@as(usize, 99), prefillChunkRows(4096, 4195, 4096, 2048, &.{}));
+test "4K prompt compute preserves checkpoints and steps down only under contention" {
+    try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(0, 16384, 4096, 14336, &.{}, true));
+    try std.testing.expectEqual(@as(usize, 99), prefillChunkRows(4096, 4195, 4096, 2048, &.{}, true));
+    try std.testing.expectEqual(@as(usize, 4096), prefillChunkRows(0, 16384, 4096, 14336, &.{}, false));
+    try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(0, 16384, 4096, 14336, &.{ 2049, 8192 }, false));
+    try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(12288, 16384, 4096, 14336, &.{}, false));
+    try std.testing.expectEqual(@as(usize, 99), prefillChunkRows(4096, 4195, 4096, 2048, &.{}, false));
     for ([_]usize{ 2048, 4096 }) |compute| {
         var at: usize = 0;
         var visited: [4]bool = @splat(false);
         const ends = [_]u32{ 2048, 6144, 10240, 14336 };
         while (at < 16387) {
-            const n = prefillChunkRows(at, 16387, compute, 14336, &ends);
+            const n = prefillChunkRows(at, 16387, compute, 14336, &ends, at < 8192);
             try std.testing.expect(n > 0 and n <= compute);
             at += n;
             for (ends, 0..) |e, i| if (at == e) { visited[i] = true; };

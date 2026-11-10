@@ -774,38 +774,38 @@ pub const LaneHost = struct {
         h.in_between = true; // (the filling pass stands between two chunks: the service fence's one way in)
         defer h.in_between = false;
         h.progressed(); // (a chunk ended: the stall monitor's clock restarts)
-        if (h.interleaving()) {
-            const t0 = std.Io.Clock.awake.now(h.io).toNanoseconds();
-            while (true) {
-                h.takeCancelsKeeping(if (h.passing) |f| f.id else null);
-                if (h.core.runnableCount() == 0 or std.Io.Clock.awake.now(h.io).toNanoseconds() - t0 >= h.interleave_ns) break;
-                h.stepRound() catch |e| {
-                    h.between_err = e; // the pass fails with it; run() then fails the streams the round held
-                    return e;
-                };
-                if (h.aborted()) { // (the collectives were stopped under the round: its tokens are not the model's)
-                    h.between_err = error.CommAborted;
-                    return error.CommAborted;
-                }
-                var i: usize = 0;
-                while (i < h.admitted.items.len) {
-                    const job = h.admitted.items[i];
-                    if (job == h.passing or job.prefilled == null) {
-                        i += 1;
-                        continue;
-                    }
-                    if (h.deliver(job)) {
-                        h.lock();
-                        _ = h.admitted.orderedRemove(i);
-                        h.unlock();
-                    } else i += 1;
-                }
-                h.noteLive();
-            }
-        }
+        if (h.interleaving()) h.decodeFor(h.interleave_ns) catch |e| {
+            h.between_err = e;
+            return e;
+        };
         if (h.servicing()) {
             if (h.passing) |f| f.reported(); // its restore is done (a chunk ran): a restore's room may evict that entry now
             h.service(h.tier.service_ns);
+        }
+    }
+
+    /// Deliver every round immediately; stop at the budget or when peers finish.
+    /// Outside a prompt call this also serves bounded admission, without resetting
+    /// the lane arena recursively inside fillStream.
+    fn decodeFor(h: *LaneHost, budget_ns: i96) !void {
+        const began = std.Io.Clock.awake.now(h.io).toNanoseconds();
+        while (true) {
+            h.takeCancelsKeeping(if (h.passing) |p| p.id else null);
+            if (h.core.runnableCount() == 0) return;
+            try h.stepRound();
+            if (h.aborted()) return error.CommAborted;
+            var i: usize = 0;
+            while (i < h.admitted.items.len) {
+                const job = h.admitted.items[i];
+                if (job == h.passing or job.prefilled == null) { i += 1; continue; }
+                if (h.deliver(job)) {
+                    h.lock();
+                    _ = h.admitted.orderedRemove(i);
+                    h.unlock();
+                } else i += 1;
+            }
+            h.noteLive();
+            if (std.Io.Clock.awake.now(h.io).toNanoseconds() - began >= budget_ns) return;
         }
     }
 
@@ -1074,6 +1074,7 @@ pub const LaneHost = struct {
             }
             h.takeCancels();
             while (h.admitOne()) {}
+            const decode_ns = if (h.core.fills() and h.hasFills() and h.core.runnableCount() > 0) h.interleave_ns else 0;
             h.fillOne();
             if (h.servicing()) h.serviceLoop(); // restores, staged writes and deferred retries, between rounds and at idle
             if (h.between_err) |e| {
@@ -1105,21 +1106,12 @@ pub const LaneHost = struct {
                 continue;
             }
             h.unlock();
-            h.stepRound() catch |e| {
+            h.decodeFor(decode_ns) catch |e| {
+                if (h.aborted()) continue; // brokenStep owns failure after stopped collectives
                 h.checkFatal(e);
                 h.failAll(@errorName(e));
                 continue;
             };
-            if (h.aborted()) continue; // (stopped under the round: brokenStep fails its streams, nothing is delivered)
-            var i: usize = 0;
-            while (i < h.admitted.items.len) {
-                const job = h.admitted.items[i];
-                if (h.deliver(job)) {
-                    h.lock();
-                    _ = h.admitted.orderedRemove(i);
-                    h.unlock();
-                } else i += 1;
-            }
         }
     }
 
