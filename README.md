@@ -6,18 +6,18 @@ DeepSeek 1017 on three 128 GB NVIDIA GB10 systems, using **Mia EAQ v1 EXL3 2.9 b
 
 ## Benchmarks
 
-| Test | Result | Measurement |
-|---|---:|---|
-| Single request — code | **101 tok/s** | Nov 9 refresh |
-| Single request — prose | **66 tok/s** | Nov 9 refresh |
-| Single request — structured text | **147 tok/s** | Nov 9 refresh |
-| 4 concurrent requests | **154 tok/s aggregate** | Nov 9 refresh, 20 seconds |
-| 8 concurrent requests | **201 tok/s aggregate** | Nov 9 refresh, 20 seconds |
-| 12 concurrent requests | **222 tok/s aggregate** | Earlier TP3 build, Nov 5, 90 seconds |
-| C12 median request decode speed | **23.4 tok/s** | Same C12 run; 58 requests completed |
-| C12 time to first token, median / p95 | **0.31 / 2.36 seconds** | Same C12 run |
-| HumanEval | **95.1% · 156/164** | Earlier TP3 build, Nov 5 |
-| HumanEvalPlus-Mini | **89.6% · 147/164** | Earlier TP3 build, Nov 5 |
+| Test | Result |
+|---|---:|
+| Single request — code | **101 tok/s** |
+| Single request — prose | **66 tok/s** |
+| Single request — structured text | **147 tok/s** |
+| 4 concurrent requests | **154 tok/s aggregate** |
+| 8 concurrent requests | **201 tok/s aggregate** |
+| 12 concurrent requests | **222 tok/s aggregate** |
+| C12 median request decode speed | **23.4 tok/s** |
+| C12 time to first token, median / p95 | **0.31 / 2.36 seconds** |
+| HumanEval | **95.1% · 156/164** |
+| HumanEvalPlus-Mini | **89.6% · 147/164** |
 
 Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; they are not a matched scaling comparison or a guarantee for long contexts. [Protocol and raw results →](benchmarks/README.md)
 
