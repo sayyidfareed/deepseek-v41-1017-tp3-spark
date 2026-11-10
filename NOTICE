@@ -1,0 +1,8 @@
+DeepSeek V4.1 Flash 1017 TP3 Spark integration
+
+This is a community integration and deployment recipe, not a new model.
+Original TensorFold, BertholomusAI, MiaAI-Lab and LakyFx notices are retained
+under licenses/. See CREDITS.md for contributions and provenance.json for
+source revisions and per-file changes. Original source and kernel copyrights
+remain with their respective authors. New integration code is Apache-2.0.
+No endorsement by upstream authors is implied.

@@ -1,0 +1,40 @@
+{
+  "upstream_commit": "45fcab6c2fddd88ff2da2e0d86b5123d88796a06",
+  "sources": [
+    {
+      "group": "upstream",
+      "file": "exl3_linear.cu",
+      "sha256": "50ec5b08e2e820cb14b660164b2ff631a9065a0c61d3c520df5de589327bc64f"
+    },
+    {
+      "group": "upstream",
+      "file": "exl3_linear_wc.cuh",
+      "sha256": "1db9a00c47344f48faf831a64233f03a4a2832c6aa27872616dc370f8426edb6"
+    },
+    {
+      "group": "upstream",
+      "file": "exl3_decode.cuh",
+      "sha256": "e5e280b05a576c04993503c26a409800945d3795e4e2d01a519b1759ce21d7fc"
+    },
+    {
+      "group": "reference",
+      "file": "linear_grouped.cu",
+      "sha256": "0e9b6d502c961d3895bc44be700f97a7e127bd3b30392695a965070747b10023"
+    },
+    {
+      "group": "reference",
+      "file": "linear_common.cuh",
+      "sha256": "f67b88574c65d97465a71fa9eb6c3242ec8a1dccae8f7548410c61151810af85"
+    },
+    {
+      "group": "reference",
+      "file": "linear.cu",
+      "sha256": "ab4c8aab74c15450956f4ccfb9f925245df9c2e0468e3c32e91dccace3b71c27"
+    },
+    {
+      "group": "reference",
+      "file": "decode.cuh",
+      "sha256": "47ae013bcad00186319f5ee05d4db400ed28f61c6a677d6fdffc8448526c4a58"
+    }
+  ]
+}

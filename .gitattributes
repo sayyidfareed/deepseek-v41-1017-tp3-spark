@@ -1,0 +1,2 @@
+# Source manifests require byte-for-byte preservation, including CRLF.
+* -text

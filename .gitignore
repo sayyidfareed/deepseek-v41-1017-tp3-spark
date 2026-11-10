@@ -1,0 +1,13 @@
+work/
+local/
+artifacts/
+.env
+.env.*
+__pycache__/
+*.pyc
+.zig-cache/
+zig-out/
+*.safetensors
+*.bin
+*.fatbin
+*.cubin

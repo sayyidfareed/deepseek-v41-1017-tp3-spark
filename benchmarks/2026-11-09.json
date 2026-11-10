@@ -1,0 +1,37 @@
+{
+  "model": "DeepSeek V4.1 Flash 1017",
+  "quantization": "Mia EAQ v1 EXL3 2.9 bpw",
+  "hardware": "3 x GB10 128 GB",
+  "tp": 3,
+  "streams": 12,
+  "pool_tokens": 6400000,
+  "gpu_clock_ceiling_mhz": 2200,
+  "protocol": {
+    "prompt_set": "b",
+    "max_output_tokens": 384,
+    "c1_repetitions": 1,
+    "concurrent_duration_seconds": 20,
+    "temperature": 0,
+    "thinking": false,
+    "client": "tools/benchmark.py"
+  },
+  "decode_tokens_per_second": {
+    "c1_code": 100.9675,
+    "c1_prose": 65.8851,
+    "c1_structured": 147.3325,
+    "c4_aggregate": 153.63,
+    "c8_aggregate": 200.92
+  },
+  "cache_check": {
+    "prompt_tokens": 24594,
+    "cold_cached_tokens": 0,
+    "cold_seconds": 7.3758109333,
+    "warm_cached_tokens": 22528,
+    "warm_seconds": 0.92681518197
+  },
+  "limitations": [
+    "Short isolated smoke measurements, not sustained capacity qualification",
+    "Later post-admission small synthetic request waited 92.127 seconds for first token; cause unresolved",
+    "No new full coding-quality or long-context rerun for this source refresh"
+  ]
+}

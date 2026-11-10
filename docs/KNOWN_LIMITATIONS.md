@@ -1,0 +1,11 @@
+# Known limits
+
+- **Intermittent low throughput remains unresolved.** Historical observations fell to roughly 1–5 tok/s. Thermal ceilings are now configured, but no controlled experiment proves heat was the cause. Short benchmark success is not a fix for a later mixed-load stall.
+- **Queue/prefill visibility is incomplete.** The engine's prefill rate reflects recently completed prefills. Zero does not prove that no prefill is in progress. Aggregate decode rate does not establish one request's progress. Phase-aware monitoring and an ordinary-only, content-free incident window are recommended but not installed by this repository.
+- **C12 means configured slots.** Shared pool occupancy, reserved output and history shapes can reduce actual overlap. Long-history twelve-way overlap and near-1M operation are not certified here.
+- **Cache continuity across TP2/TP3 is not provided.** Our restoration retained the previous TP3 spill directory and did not migrate recent TP2 prompt/KV caches. GPU cache is lost on shutdown. No safe cross-topology cache conversion is claimed.
+- **Thinking/tool streaming:** known parser repairs and separated reasoning cases pass, but bare or unmarked reasoning and malformed repeated closing tags can still leak. Full-answer buffering was not introduced as a workaround; incremental streaming remains enabled.
+- **Strict JSON-schema unions:** root/nested `anyOf`/`oneOf` object unions receive 422. A client may fall back to JSON-object mode and validate locally, but that is weaker than server-enforced strict schemas. Supported strict-schema cases are separate from this limitation.
+- **No secure-chat qualification.** Ordinary disk spill persists conversation-derived state. Log driver none and core limits alone do not imply no retention, no swap or comprehensive cleanup.
+- **Public packaging is source-first.** Source reconstruction and offline export tests can be checked here; a clean-machine model download/build/runtime assembly and GPU deployment of this packaging have not been performed. The launch renderer is newly generalized from the deployed configuration and is not a production supervisor.
+- **No automatic model rollback or network management.** Coordinate admission/drain and all ranks externally. Preserve the prior runtime until the replacement passes your own workload.

@@ -1,0 +1,1332 @@
+[
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 0,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 4,
+      "PACKED": 0,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 12,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 20,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 5,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 6,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 8,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "H": 24,
+      "HD": 512,
+      "HB": 16,
+      "WIN": 128,
+      "BN": 32,
+      "RING": 0,
+      "HAS_COMP": 1,
+      "PACKED": 1,
+      "SPLITS": 1,
+      "NBLK": 36,
+      "FINAL": 1,
+      "HAS_BASE": 0,
+      "PDL": 1,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": true
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": true
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 0,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 4,
+      "PACKED": 0,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "CSC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 12,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": false
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": false
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 20,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": false
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": false
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 5,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": false
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": false
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 6,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": false
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": false
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "BN": 32,
+      "FINAL": 1,
+      "H": 24,
+      "HAS_BASE": 0,
+      "HAS_COMP": 1,
+      "HB": 16,
+      "HD": 512,
+      "NBLK": 8,
+      "PACKED": 1,
+      "PDL": 1,
+      "RING": 0,
+      "SPLITS": 1,
+      "WIN": 128,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": false
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": false
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  },
+  {
+    "module": "prefill127k_kernels",
+    "function": "_sparse_attn_part",
+    "consts": {
+      "H": 24,
+      "HD": 512,
+      "HB": 16,
+      "WIN": 128,
+      "BN": 32,
+      "RING": 0,
+      "HAS_COMP": 1,
+      "PACKED": 1,
+      "SPLITS": 1,
+      "NBLK": 36,
+      "FINAL": 1,
+      "HAS_BASE": 0,
+      "PDL": 1,
+      "WPF": 0
+    },
+    "params": {
+      "Q": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WSRC": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "WLO": {
+        "type": "*i64",
+        "div16": false
+      },
+      "COMP": {
+        "type": "*u8",
+        "div16": false
+      },
+      "CSC": {
+        "type": "*u8",
+        "div16": false
+      },
+      "IDX": {
+        "type": "*i64",
+        "div16": false
+      },
+      "POS": {
+        "type": "*i64",
+        "div16": false
+      },
+      "PM": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PL": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "PO": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "SINK": {
+        "type": "*fp32",
+        "div16": true
+      },
+      "OUT": {
+        "type": "*bf16",
+        "div16": true
+      },
+      "scale": {
+        "type": "fp32",
+        "div16": false
+      },
+      "ring_size": {
+        "type": "i32",
+        "div16": false
+      },
+      "n_idx": {
+        "type": "i32",
+        "div16": false
+      },
+      "RBASE": {
+        "type": "*i64",
+        "div16": false
+      },
+      "CBASE": {
+        "type": "*i64",
+        "div16": false
+      }
+    },
+    "options": {
+      "num_warps": 4,
+      "num_stages": 1,
+      "launch_pdl": true
+    }
+  }
+]

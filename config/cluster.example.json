@@ -1,0 +1,73 @@
+{
+  "image": "REPLACE_WITH_LOCALLY_BUILT_IMAGE_DIGEST",
+  "master": "192.0.2.10",
+  "port": 29660,
+  "ranks": [
+    {
+      "runtime": "/srv/deepseek/runtime",
+      "kit": "/srv/deepseek/kit",
+      "rank_cache": "/srv/deepseek/rank-cache",
+      "engram": "/srv/deepseek/engram",
+      "serving": "/srv/deepseek/serving",
+      "spill": "/srv/deepseek/spill",
+      "rank_cache_sha256": "REPLACE_WITH_VERIFIED_RANK_SHA256",
+      "network_env": {
+        "NCCL_NET": "IB",
+        "NCCL_IB_DISABLE": "0",
+        "NCCL_IB_ROCE_VERSION_NUM": "2",
+        "NCCL_IB_ADDR_FAMILY": "AF_INET",
+        "NCCL_NVLS_ENABLE": "0",
+        "NCCL_IB_MERGE_NICS": "0",
+        "NCCL_CUMEM_ENABLE": "0",
+        "NCCL_NET_PLUGIN": "none",
+        "NCCL_DEBUG": "WARN",
+        "NCCL_IB_HCA": "REPLACE_WITH_LOCAL_RDMA_DEVICES",
+        "NCCL_SOCKET_IFNAME": "=REPLACE_WITH_CONTROL_INTERFACE"
+      }
+    },
+    {
+      "runtime": "/srv/deepseek/runtime",
+      "kit": "/srv/deepseek/kit",
+      "rank_cache": "/srv/deepseek/rank-cache",
+      "engram": "/srv/deepseek/engram",
+      "serving": "/srv/deepseek/serving",
+      "spill": "/srv/deepseek/spill",
+      "rank_cache_sha256": "REPLACE_WITH_VERIFIED_RANK_SHA256",
+      "network_env": {
+        "NCCL_NET": "IB",
+        "NCCL_IB_DISABLE": "0",
+        "NCCL_IB_ROCE_VERSION_NUM": "2",
+        "NCCL_IB_ADDR_FAMILY": "AF_INET",
+        "NCCL_NVLS_ENABLE": "0",
+        "NCCL_IB_MERGE_NICS": "0",
+        "NCCL_CUMEM_ENABLE": "0",
+        "NCCL_NET_PLUGIN": "none",
+        "NCCL_DEBUG": "WARN",
+        "NCCL_IB_HCA": "REPLACE_WITH_LOCAL_RDMA_DEVICES",
+        "NCCL_SOCKET_IFNAME": "=REPLACE_WITH_CONTROL_INTERFACE"
+      }
+    },
+    {
+      "runtime": "/srv/deepseek/runtime",
+      "kit": "/srv/deepseek/kit",
+      "rank_cache": "/srv/deepseek/rank-cache",
+      "engram": "/srv/deepseek/engram",
+      "serving": "/srv/deepseek/serving",
+      "spill": "/srv/deepseek/spill",
+      "rank_cache_sha256": "REPLACE_WITH_VERIFIED_RANK_SHA256",
+      "network_env": {
+        "NCCL_NET": "IB",
+        "NCCL_IB_DISABLE": "0",
+        "NCCL_IB_ROCE_VERSION_NUM": "2",
+        "NCCL_IB_ADDR_FAMILY": "AF_INET",
+        "NCCL_NVLS_ENABLE": "0",
+        "NCCL_IB_MERGE_NICS": "0",
+        "NCCL_CUMEM_ENABLE": "0",
+        "NCCL_NET_PLUGIN": "none",
+        "NCCL_DEBUG": "WARN",
+        "NCCL_IB_HCA": "REPLACE_WITH_LOCAL_RDMA_DEVICES",
+        "NCCL_SOCKET_IFNAME": "=REPLACE_WITH_CONTROL_INTERFACE"
+      }
+    }
+  ]
+}
