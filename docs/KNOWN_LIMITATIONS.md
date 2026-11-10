@@ -1,11 +1,9 @@
-# Known limits
+# Known limitations
 
-- **Intermittent low throughput remains unresolved.** Historical observations fell to roughly 1–5 tok/s. Thermal ceilings are now configured, but no controlled experiment proves heat was the cause. Short benchmark success is not a fix for a later mixed-load stall.
-- **Queue/prefill visibility is incomplete.** The engine's prefill rate reflects recently completed prefills. Zero does not prove that no prefill is in progress. Aggregate decode rate does not establish one request's progress. Phase-aware monitoring and an ordinary-only, content-free incident window are recommended but not installed by this repository.
-- **C12 means configured slots.** Shared pool occupancy, reserved output and history shapes can reduce actual overlap. Long-history twelve-way overlap and near-1M operation are not certified here.
-- **Cache continuity across TP2/TP3 is not provided.** Our restoration retained the previous TP3 spill directory and did not migrate recent TP2 prompt/KV caches. GPU cache is lost on shutdown. No safe cross-topology cache conversion is claimed.
-- **Thinking/tool streaming:** known parser repairs and separated reasoning cases pass, but bare or unmarked reasoning and malformed repeated closing tags can still leak. Full-answer buffering was not introduced as a workaround; incremental streaming remains enabled.
-- **Strict JSON-schema unions:** root/nested `anyOf`/`oneOf` object unions receive 422. A client may fall back to JSON-object mode and validate locally, but that is weaker than server-enforced strict schemas. Supported strict-schema cases are separate from this limitation.
-- **No secure-chat qualification.** Ordinary disk spill persists conversation-derived state. Log driver none and core limits alone do not imply no retention, no swap or comprehensive cleanup.
-- **Public packaging is source-first.** Source reconstruction and offline export tests can be checked here; a clean-machine model download/build/runtime assembly and GPU deployment of this packaging have not been performed. The launch renderer is newly generalized from the deployed configuration and is not a production supervisor.
-- **No automatic model rollback or network management.** Coordinate admission/drain and all ranks externally. Preserve the prior runtime until the replacement passes your own workload.
+- **Slowdowns:** intermittent low throughput and long first-token delays remain unresolved. Short benchmark runs do not establish sustained mixed-workload performance.
+- **Long contexts:** twelve request slots do not guarantee twelve simultaneous long histories. Near-1M context operation is not qualified.
+- **Reasoning:** malformed or unmarked thinking blocks can still leak into answer text. Incremental streaming remains enabled.
+- **JSON schemas:** root or nested `anyOf`/`oneOf` object unions return HTTP 422. JSON-object fallback requires client-side validation.
+- **Caching:** TP2 and TP3 spill caches are not interchangeable. In-memory cache is lost on shutdown; no cross-topology migration is provided.
+- **Retention:** ordinary disk spill retains conversation-derived state. No secure/no-retention qualification is claimed.
+- **Installation:** source reconstruction is tested; fresh-machine runtime assembly and deployment of this public packaging are not. There is no bundled image, automatic network setup or service supervisor.

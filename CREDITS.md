@@ -1,6 +1,6 @@
 # Credits and source lineage
 
-This repository integrates existing work. It does **not** claim to have invented TensorFold, DeepSeek, EXL3 quantization, TP3, speculative decoding, disk spilling or the donor throughput algorithms. Upstream authors do not endorse this integration.
+This recipe integrates the following upstream work. Attribution does not imply endorsement.
 
 | Contributor / project | Work used here |
 |---|---|

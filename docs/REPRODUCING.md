@@ -75,4 +75,4 @@ python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 
 Then, in a controlled ordinary-work window, test all ranks and your gateway: authentication, streaming, required/named/automatic tools and continuation, thinking on/off and low/high/max, supported strict schemas and explicit 422 for unsupported unions, image input, cancellation, output limits and warm/cold cache behavior. Use synthetic input only. Validate concurrent requests against your actual history lengths. Observe after long prefills, not just on a fresh empty server.
 
-Secure/no-retention use is unsupported. Recent TP2 spill files were not migrated in the recorded deployment, and no cross-topology conversion is provided. Keep rollback assets and cache namespaces separate.
+Secure/no-retention use is unsupported. No TP2/TP3 cache conversion is provided. Keep rollback assets and cache namespaces separate.
