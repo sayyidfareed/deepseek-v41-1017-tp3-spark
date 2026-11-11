@@ -12,7 +12,7 @@ This recipe integrates the following upstream work. Attribution does not imply e
 | [Turboderp / ExLlamaV3](https://github.com/turboderp-org/exllamav3) | EXL3 format and decoding/kernel lineage. MIT notices retained. |
 | [Robert Wojciechowski / wojo](https://github.com/wojo) and [BadAd84](https://github.com/BadAd84) | Disk-spill/cache design and fixes credited by Mia, including block-tier design and CPU validation. |
 | [eleata](https://github.com/eleata) | Mia's piecewise-prefill engine rebase and associated integration. |
-| [Christopher Owen / spark-ds41f](https://github.com/christopherowen/spark-ds41f) | Reference for the mixed-prefill scheduling comparison that informed our fairness repair. No Owen runtime, kernels or performance results are included as our own. |
+| [Christopher Owen / spark-ds41f](https://github.com/christopherowen/spark-ds41f) | 64 KiB host-setup reference and mixed-prefill scheduling research that informed our fairness repair; author of the separately installed [Memory Saver](https://github.com/christopherowen/dgx-spark-memory-saver) used in the optional 64 KiB host qualification. No Owen runtime, kernels or performance results are included as our own. |
 | [Hector Isaza / hecisaza](https://github.com/hecisaza) | Upstream Engram failure-path and server/parser work, including adopted 0064/0065 DSML fixes. |
 | [Christopher A. Williamson / cawilliamson](https://github.com/cawilliamson) | GET/DELETE request-body draining correction carried by Mia as 0046. |
 | [Lukasz Raczylo](https://github.com/lukaszraczylo) | First-draft-depth correction 0049 carried by Mia. Optional 0050/0051 features were not activated by this integration. |
@@ -21,7 +21,7 @@ This recipe integrates the following upstream work. Attribution does not imply e
 
 ## This integration
 
-Our contribution is combining Mia's exact 1017 EAQ pack with the three-rank donor runtime, lossless whole-block rank export, conflict resolution preserving TP3 behavior, selected TP2 correctness updates, local grammar/reopened-thinking fixes, bounded text/image prefill scheduling with decode service and regression coverage, deployment configuration and bounded qualification. The public repository is maintained by [sayyidfareed](https://github.com/sayyidfareed).
+Our contribution is combining Mia's exact 1017 EAQ pack with the three-rank donor runtime, lossless whole-block rank export, conflict resolution preserving TP3 behavior, selected TP2 correctness updates, local grammar/reopened-thinking fixes, Engram prefix reuse and bounded read-ahead, cache-restore polling, bounded text/image prefill scheduling with decode service and regression coverage, deployment configuration and bounded qualification. The public repository is maintained by [sayyidfareed](https://github.com/sayyidfareed).
 
 See `provenance.json` for pinned repositories and the base/deployed/export SHA256 of each changed engine file. Exported source adds modification notices; those comments are the only intended difference from the captured deployed source. JSON fixtures remain byte-identical where no comment is possible.
 

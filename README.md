@@ -19,19 +19,22 @@ DeepSeek 1017 on three 128 GB NVIDIA GB10 systems, using **Mia EAQ v1 EXL3 2.9 b
 | HumanEval | **95.1% · 156/164** |
 | HumanEvalPlus-Mini | **89.6% · 147/164** |
 
-Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; all results above predate the scheduling fixes below. They are not a matched scaling comparison or a guarantee for long contexts. [Protocol and results →](benchmarks/README.md)
+Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; all results above predate the current scheduling fixes below. They are not a matched scaling comparison or a guarantee for long contexts. [Protocol and results →](benchmarks/README.md)
 
-## Scheduling fixes
+## Streaming and cache improvements
 
-Text and image-bearing prompts now yield between bounded prefill chunks, giving existing streams the configured 250 ms decode allowance. Contended chunks are capped at 2,048 rows; solo prefill keeps its 4,096-row maximum. Image fills retain exclusive ownership of their image state. Streaming and cancellation remain enabled.
+The current overlay reuses completed Engram reads, bounds read-ahead to the active chunk, and yields while disk-cache restores are pending. Competing prefill uses **1,024-row chunks** and waits for GPU completion before giving decode its 250 ms service allowance; solo prefill retains its 4,096-row maximum. Streaming and cancellation remain enabled.
 
-| Mixed-workload check | Result |
-|---|---:|
-| Cold 131K text + 3 warm streams: longest warm SSE gap | **1.14 s** |
-| Cold 131K text + 7 warm streams: longest warm SSE gap | **1.21 s** |
-| Cold 32K image history + 3 streaming peers: longest peer SSE gap | **1.68 s** |
+Measured on the 64 KiB host profile, with unchanged Mia weights, C12 and the 6.4M pool:
 
-These are single synthetic runs, not matched before/after speedups. Text cases tested the text repair; the image case tested both repairs. All peers progressed during the cold prefill. Some intermittent slowdowns remain unresolved. [Test details →](benchmarks/README.md#mixed-prefill-and-streaming)
+| Matched 320K cold-image test + 3 streaming peers | Before 1K chunks | Current |
+|---|---:|---:|
+| Peer visible output during cold prefill | 7.03 tok/s | **38.83 tok/s** |
+| Longest peer output gap | 1.12 s | **0.82 s** |
+| Cold image time to first output | **159 s** | 244 s |
+| Separate C4 throughput check | 156.57 tok/s | 159.01 tok/s |
+
+This prioritizes ongoing replies at the cost of slower cold-prefill completion. It is one matched pair, not a general throughput claim. After a normal same-build restart, two 32K image histories each restored **30,720 tokens from disk**: first output in **1.06 s** alone and **1.46 s** alongside three streaming peers, whose longest gap was **0.46 s**. [Protocol, results and limits →](benchmarks/README.md#current-streaming-and-restart-cache-checks)
 
 ## Setup
 
@@ -56,6 +59,6 @@ This is a **source recipe**, not a ready-to-run image or one-command installer. 
 
 ## Credits
 
-Built on **DeepSeek**, **Ash Hart / TensorFold**, **Albert Lee / BertholomusAI**, **MiaAI-Lab**, **LakyFx**, **Turboderp / ExLlamaV3**, and the cache, kernel and parser contributors credited in [CREDITS.md](CREDITS.md).
+Built on **DeepSeek**, **Ash Hart / TensorFold**, **Albert Lee / BertholomusAI**, **MiaAI-Lab**, **LakyFx**, **Turboderp / ExLlamaV3**, **[Christopher Owen](https://github.com/christopherowen)** (Memory Saver and host/scheduling reference), and the cache, kernel and parser contributors credited in [CREDITS.md](CREDITS.md).
 
 Integration code is Apache-2.0; upstream code and model weights retain their own licenses. Original notices are preserved in [licenses/](licenses/).

@@ -64,6 +64,14 @@ The head binds to `127.0.0.1:8000`. Supply and test your own authenticated gatew
 
 A 2,200 MHz GPU ceiling was used for the reported results. Applying it is an administrator/hardware setting; the renderer does not apply it or change boot services. Keep host-specific power/clock policies explicit in benchmark comparisons.
 
+### Optional 64 KiB host profile — bounded qualification completed
+
+The exact Mia weights, streaming, 12 slots and 6.4M pool passed bounded ordinary qualification on a 64 KiB kernel with [Christopher Owen's Memory Saver](https://github.com/christopherowen/dgx-spark-memory-saver). The host profile changes memory availability; it does not change quantization or port Owen compute kernels. The overlay also includes separately qualified Engram read-ahead, restore polling and competing-prefill repairs; their performance must not be attributed to the kernel. The README's historical short-prompt table predates this combination; its streaming/cache table reports the new checks.
+
+Our tested host combination is `7.0.0-1019-nvidia-64k`, NVIDIA `580.178.04` and signed Memory Saver `0.4.1`, with UVM packing enabled. Follow that project's compatibility, signing and boot instructions; this recipe does not install a kernel, enroll a key or reboot machines. Secure Boot enrollment can require a local display and keyboard.
+
+Before loading this recipe, verify the running page size (`getconf PAGESIZE`, expected `65536`) and the loaded UVM module using Memory Saver's existing `scripts/status --json` on every rank. A package installed on disk is not proof of the running module. Retain the stock boot fallback. Then qualify the unchanged engine before adding further engine changes, using the checks below and the same clock ceiling, prompts, output limits and cache conditions as the baseline. Record usable RAM and swap activity per rank as well as throughput and streaming gaps. Upstream measured memory recovery does not establish TensorFold compatibility or a throughput gain.
+
 ## 5. Qualification
 
 Run offline export and packaging tests first:

@@ -20,7 +20,7 @@ python3 tools/benchmark.py --base http://127.0.0.1:8000 --model deepseek-v4.1-fl
 
 Record the build, clocks, cache state and competing work with each run. The example uses 90 seconds at every concurrency; the Nov 9 C4/C8 results used 20 seconds.
 
-## Mixed prefill and streaming
+## Earlier mixed prefill and streaming
 
 The scheduling repairs use the same weights, kernels, C12 capacity, 6.4M pool and 2,200 MHz ceiling. Text checks used the text repair; the image check used the subsequent combined text/image repair. One synthetic run per case; there is no matched incumbent GPU control and no new C1/C4/C8/C12 throughput score for these repairs.
 
@@ -38,3 +38,15 @@ The retained CPU suite passes 700 tests (497 executed on the combined repair, 20
 ## Coding quality
 
 The Nov 5 combined throughput build scored **156/164 HumanEval** and **147/164 HumanEvalPlus-Mini**. Its evaluation reused 101 saved generations and completed 63 remaining tasks. This was not a fresh 164-task generation run of the Nov 9 refresh.
+
+## Current streaming and restart-cache checks
+
+The Nov 10 overlay was tested on three GB10s with kernel `7.0.0-1019-nvidia-64k`, NVIDIA `580.178.04`, Memory Saver `0.4.1` with UVM packing, and a 2,200 MHz GPU ceiling. Exact Mia EAQ 2.9-bpw weights, streaming, 12 slots and pool 6.4M were retained. These measurements do not isolate a kernel or Memory Saver speedup.
+
+[Machine-readable results](2026-11-10-streaming-cache.json) contain only synthetic workload aggregates.
+
+The matched prefill comparison used one cold 320,231-token image history with zero cached tokens alongside three streaming peers per build. Moving from 2,048-row competing chunks to 1,024 rows (with the completion fence) raised peer output during prefill from 7.03 to 38.83 visible tok/s (retokenized visible output, not sampled-token telemetry) and reduced the longest peer gap from 1.12 to 0.82 seconds. Cold first output increased from 159.14 to 244.35 seconds; whole-wave time increased from 286.22 to 296.61 seconds. Separate C4 checks were 156.57 and 159.01 aggregate tok/s; that small difference is not a noise-resolved speedup. The images were answered correctly.
+
+A separate normal-to-normal same-build restart check seeded two fresh synthetic 32,231-token image histories and verified durable writes on all three ranks. Both then recorded a committed disk hit and 30,720 restored tokens. Idle TTFT was 1.058 seconds; with three streaming peers it was 1.464 seconds. Each peer completed 2,048 output tokens, progressed before the image's first output, and had a maximum SSE gap no greater than 0.461 seconds. All 18 ordinary API-route checks and 15 key-policy checks passed. No model-process swapping or OOM was observed.
+
+This confirms same-build restart reuse for those two histories. It does not establish cross-build/topology compatibility, uninterrupted service under every mixed workload, or a fix for every historical slowdown. Earlier diagnostic-mode starts missed their checkpoints; normal-mode recovery passed. No private prompts, cache contents, host identities or credentials are included in these results. Coding quality and the short-prompt table above were not rerun for this publication.

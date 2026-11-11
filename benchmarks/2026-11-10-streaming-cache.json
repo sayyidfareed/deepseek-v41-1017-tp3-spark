@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-10",
+  "profile": {
+    "streams": 12,
+    "pool_tokens": 6400000,
+    "gpu_ceiling_mhz": 2200,
+    "kernel": "7.0.0-1019-nvidia-64k",
+    "driver": "580.178.04",
+    "memory_saver": "0.4.1",
+    "uvm_packing": true
+  },
+  "matched_prefill": {
+    "runs_per_build": 1,
+    "cold_prompt_tokens": 320231,
+    "cold_cached_tokens": 0,
+    "streaming_peers": 3,
+    "baseline": {
+      "contended_rows": 2048,
+      "peer_visible_tokens_per_s": 7.0252,
+      "max_peer_gap_s": 1.11917,
+      "cold_ttft_s": 159.141,
+      "wave_s": 286.216,
+      "separate_c4_tokens_per_s": 156.57
+    },
+    "current": {
+      "contended_rows": 1024,
+      "peer_visible_tokens_per_s": 38.82544,
+      "max_peer_gap_s": 0.821956,
+      "cold_ttft_s": 244.35,
+      "wave_s": 296.609,
+      "separate_c4_tokens_per_s": 159.01
+    }
+  },
+  "normal_restart_cache": {
+    "accepted": true,
+    "one_normal_restart": true,
+    "route_checks": 18,
+    "key_policy_checks": 15,
+    "cases": [
+      {
+        "mode": "idle",
+        "cached_tokens": 30720,
+        "prompt_tokens": 32231,
+        "ttft_s": 1.0575672179984394,
+        "committed_disk_hit_delta": 1,
+        "restored_token_delta": 30720,
+        "max_peer_sse_gap_s": null,
+        "disk_proven": true
+      },
+      {
+        "mode": "three_streaming_peers",
+        "cached_tokens": 30720,
+        "prompt_tokens": 32231,
+        "ttft_s": 1.4641557920003834,
+        "committed_disk_hit_delta": 1,
+        "restored_token_delta": 30720,
+        "max_peer_sse_gap_s": 0.46047479000117164,
+        "disk_proven": true
+      }
+    ],
+    "limits": [
+      "Two fresh synthetic 32K image histories only; not historical chat cache coverage.",
+      "Earlier diagnostic-mode namespace/cache misses remain unexplained; no ordinary restart-cache failure reproduced.",
+      "No universal resolution of historical severe mixed-workload slowdown claimed."
+    ]
+  }
+}
