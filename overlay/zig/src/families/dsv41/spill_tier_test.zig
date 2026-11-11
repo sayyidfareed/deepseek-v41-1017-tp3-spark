@@ -851,6 +851,7 @@ const Reader = struct {
 /// Rank 0's end of the link: lanes' frames as [kind][payload].
 const Rank0Wire = struct {
     l: link.Link,
+    status_delay_ns: u64 = 0, // synthetic transport latency, longer than the polling throttle
     buf: std.ArrayList(u8) = .empty,
 
     fn frame(ctx: *anyopaque, kind: u8, sub: []const u8) anyerror!void {
@@ -859,6 +860,9 @@ const Rank0Wire = struct {
         try w.buf.append(gpa, kind);
         try w.buf.appendSlice(gpa, sub);
         try w.l.send(w.buf.items);
+        if (w.status_delay_ns > 0 and kind == rank_wire.lanes_kind and
+            (try rank_wire.decode(sub, &.{})).msg == .status)
+            std.Io.sleep(io, .fromNanoseconds(w.status_delay_ns), .awake) catch {};
     }
 
     fn send(w: *Rank0Wire, kind: u8, parts: []const []const u8) !void {
@@ -1955,4 +1959,62 @@ fn monotonic() u64 {
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts);
     return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+}
+
+
+test "two ranks: slow status replies yield after the poll budget instead of monopolizing restore wait" {
+    const pr = try Pair.start("pbudget", 0, 89);
+    defer pr.deinit();
+    const r0 = pr.r0;
+    const w = &pr.w;
+    var fam: Fam0 = .{ .sim = r0.sim };
+    defer fam.deinit();
+    pr.lead.?.timeouts.status_wait_ns = 200 * std.time.ns_per_ms;
+    const ld = try pr.leader(&fam, 12);
+    var ld_alive = true;
+    defer if (ld_alive) ld.destroy();
+    const t = ld.tier();
+    var ids: [4 * bt]u32 = undefined;
+    testIds(&ids, 77);
+    const sn = try keepBoth(w, t, r0.sim, 1, 0, &ids, &ids);
+    defer gpa.destroy(sn);
+    try pumpUntil(ld, 1);
+    const key = format.pointKey(&ids, bt, &.{});
+    try w.waitPresent(key, true);
+    try w.send(T.hold, &.{&[_]u8{1}});
+    w.status_delay_ns = 3 * std.time.ns_per_ms;
+    const point = t.vtable.lookup(t.ptr, &want(&ids)) orelse return error.NotFound;
+    const job = try t.vtable.begin(t.ptr, &point);
+    var checked: usize = 0;
+    for (0..2000) |_| {
+        const asks = ld.status_asks;
+        const began = monotonic();
+        const result = t.vtable.poll(t.ptr, job, std.time.ns_per_ms);
+        const elapsed = monotonic() - began;
+        if (ld.status_asks > asks) {
+            std.debug.print("restore_budget_regression asks={d} elapsed_ns={d} pending={}\n", .{ld.status_asks - asks, elapsed, result == .pending});
+            try testing.expect(result == .pending);
+            try testing.expectEqual(asks + 1, ld.status_asks);
+            // A synchronous in-flight reply may exceed 1ms; do not send another after it.
+            try testing.expect(elapsed < 100 * std.time.ns_per_ms);
+            _ = try w.query(key); // another ordered command gets serviced between polls
+            checked += 1;
+            if (checked == 3) break;
+        }
+        std.Io.sleep(io, .fromMilliseconds(1), .awake) catch {};
+    }
+    try testing.expectEqual(@as(usize, 3), checked);
+    try testing.expectEqual(@as(u64, 0), ld.validate_asks);
+    w.status_delay_ns = 0;
+    try w.send(T.hold, &.{&[_]u8{0}});
+    const done = pollUntilDone(t, job);
+    try testing.expect(done == .ready);
+    const got: *Snap = @ptrCast(@alignCast(done.ready.saved));
+    defer r0.sim.freeSnap(got.buf);
+    try testing.expectEqual(@as(u64, 1), ld.validate_asks);
+    try testing.expect(r0.sim.sameRows(0, got.base, 4 * bt));
+    try testing.expect(try w.yes(T.verify, &.{ &le(u64, 0), &le(u64, got.base), &le(u32, 4 * bt), &le(u64, 1), &le(u64, got.id) }));
+    ld.destroy();
+    ld_alive = false;
+    try pr.finish();
 }

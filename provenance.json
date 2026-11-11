@@ -699,9 +699,9 @@
     {
       "path": "zig/src/families/dsv41/engram_lead.zig",
       "base_sha256": "0f689f92c9904540e4703facfc10dcdc4a5cc84d386171489b38afb7b710b9bf",
-      "deployed_source_sha256": "f3d2ce00d1e021909ed271cd6bdc183f14d76eb898298fd41c46b878adf0dd53",
-      "export_sha256": "099f56bbcb5ebe8cdaa795f3a439841a98f514b3b56cea1357d620ac9ce18b6d",
-      "notice_added": true
+      "deployed_source_sha256": "4ff71d12bde7d59ceb8c03af63b3b5e2c8159fc04123f3f7cab66e657839cc5f",
+      "export_sha256": "4ff71d12bde7d59ceb8c03af63b3b5e2c8159fc04123f3f7cab66e657839cc5f",
+      "notice_added": false
     },
     {
       "path": "zig/src/families/dsv41/exl3_experts.zig",
@@ -762,8 +762,8 @@
     {
       "path": "zig/src/families/dsv41/lanes.zig",
       "base_sha256": "84ab9469613996041830762ea1cd249f15b48526869e399b7d6fcc2e183e8695",
-      "deployed_source_sha256": "934c7e2368f6cfc98b193570102920940b0b1af3ee85b915e420134b25584369",
-      "export_sha256": "5f2079282bf06cd0a18b0d3f80bdff6e9e12431e1bc1fec5c12a0966c01246f9",
+      "deployed_source_sha256": "90563de4fd42d856945ae6f3af3652f53458daffd474a9b5118ef50a1a5b48fd",
+      "export_sha256": "519912046747bacb0f2f7996db08287eb450c34f306ffbee3c04345dc02cf576",
       "notice_added": true
     },
     {
@@ -790,9 +790,9 @@
     {
       "path": "zig/src/families/dsv41/model.zig",
       "base_sha256": "c7efa403134723295d9e6b3331afbbbb5af39363a0a9fd9d54f241f52044cc7e",
-      "deployed_source_sha256": "81c02e5f69e819165a76e04110b43769d344e6b2d25d6cf8eb034604d34da52d",
-      "export_sha256": "b966cf174eba5508d36b506f8d569feff1c8ced58a692622fc9559197ad528b0",
-      "notice_added": true
+      "deployed_source_sha256": "991ea858f506ab4635fef5e81ab6bae7561960d56ac98b7c389fd348ca699752",
+      "export_sha256": "991ea858f506ab4635fef5e81ab6bae7561960d56ac98b7c389fd348ca699752",
+      "notice_added": false
     },
     {
       "path": "zig/src/families/dsv41/native.zig",
@@ -853,9 +853,9 @@
     {
       "path": "zig/src/families/dsv41/prompt.zig",
       "base_sha256": "a506f9f2dcc15e5ae07c7cd91dcde582377332fc4647717b894b1fd5b9a95fd6",
-      "deployed_source_sha256": "7642bcbc4ae4c4849fc3341f7a73abb9237b6f4a69d011e7af221adccb459a4d",
-      "export_sha256": "121c3f785ccaf486d120208f4dca707c3b5af5bef8f9b0b704530ebdd8ef7d5c",
-      "notice_added": true
+      "deployed_source_sha256": "35aeaf4852fdf59a627cfc89096f7820397c95524c906ffefac8b07524c2a401",
+      "export_sha256": "35aeaf4852fdf59a627cfc89096f7820397c95524c906ffefac8b07524c2a401",
+      "notice_added": false
     },
     {
       "path": "zig/src/families/dsv41/prompt2d.zig",
@@ -1021,15 +1021,15 @@
     {
       "path": "zig/src/families/dsv41/spill_tier.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "b502336b94433d418b896a692033de35f6b05f33c15c7a29efae2e2fe23c83b9",
-      "export_sha256": "41bf45916b3f59f15bf4f99ddfcadd2397f85c827f4935d9bc2bc1db8c6e4190",
+      "deployed_source_sha256": "ccebcefae9a8f34c3f0fe14ba94cad4673d12ca9be8c48ca0251aae088b21279",
+      "export_sha256": "06e17686286014e32f1be0a8e02b5ef5750b10efffde5a992fcbb70cc38f8690",
       "notice_added": true
     },
     {
       "path": "zig/src/families/dsv41/spill_tier_test.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "b6a7758ee9a6677ff209a0cafbec80428ae4cb7cec717d4560e304cc26275b25",
-      "export_sha256": "c7059a09f2d0293992181c65312067ec12461491f921986c2627bd663fccf819",
+      "deployed_source_sha256": "ca5ecda96595e86d44d937690999a8fc2881e8abd9859e7abd5dfc851bb66e79",
+      "export_sha256": "94137ba43d8f0116ebac9e5db0cd7f9a5b2a002021430c147de0e1b5723e61ce",
       "notice_added": true
     },
     {
@@ -1466,5 +1466,19 @@
       "input_sha256": "b83ffd783e2908f378df3c17afcd83dc2d5c1bf3a17faf9be658442f89f8f261",
       "export_sha256": "e78b24fdd3c050d9d67c905624fb12de366f9f566596157a3211ea74cb765a16"
     }
-  ]
+  ],
+  "qualified_update": {
+    "status": "GPU-qualified source update, November 10, 2026",
+    "change": "Engram prefix reuse and bounded read-ahead; restore polling deadline; completion fence and 1024-row competing prefill with checkpoint realignment",
+    "files": [
+      "zig/src/families/dsv41/engram_lead.zig",
+      "zig/src/families/dsv41/lanes.zig",
+      "zig/src/families/dsv41/model.zig",
+      "zig/src/families/dsv41/prompt.zig",
+      "zig/src/families/dsv41/spill_tier.zig",
+      "zig/src/families/dsv41/spill_tier_test.zig"
+    ],
+    "qualification": "385 native CPU tests passed in retained validation. Matched 320K cold-image/streaming comparison and normal-to-normal restart disk-cache reuse passed; 18 route and 15 key-policy checks passed. No universal historical slowdown-resolution claim.",
+    "scope": "Exact Mia 1017 EAQ 2.9 weights, streaming, C12, pool 6400000; no graph-policy or Owen compute-kernel port."
+  }
 }

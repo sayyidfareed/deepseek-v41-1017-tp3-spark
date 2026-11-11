@@ -13,6 +13,25 @@ pub fn enabled(v: ?[]const u8) bool {
     return std.mem.eql(u8, v orelse return false, "1");
 }
 
+/// Bound speculative I/O before the next scheduler yield as well as computation.
+/// A smaller checkpoint/contended chunk must not join a full compute tile's read.
+pub fn aheadRows(compute_rows: usize, current_rows: usize, remaining: usize) usize {
+    return @min(compute_rows, current_rows, remaining);
+}
+
+test "Engram speculative reads obey a shortened scheduling slice" {
+    // A peer makes the 4K compute path yield every 2K rows. Read-ahead must
+    // obey that slice too, including checkpoints and the end of a prompt.
+    for ([_]usize{ 1, 99, 2048, 4096 }) |slice| {
+        const next = aheadRows(4096, slice, 16384);
+        try std.testing.expect(next <= slice);
+        try std.testing.expect(next > 0);
+    }
+    try std.testing.expectEqual(@as(usize, 4096), aheadRows(4096, 4096, 16384));
+    try std.testing.expectEqual(@as(usize, 99), aheadRows(4096, 2048, 99));
+    try std.testing.expectEqual(@as(usize, 0), aheadRows(4096, 2048, 0));
+}
+
 /// The layers' readers: fillChunk calls begin at a chunk's start, then before and after around each Engram layer.
 pub const Lead = struct {
     threads: [2]?std.Thread = .{ null, null },
@@ -198,6 +217,31 @@ test "TF_DS_ENGRAM_LEAD: each layer's rows of the next chunk are read while this
     const ref = try prompt.engramRows(&eh, 0, tabs[0], p1[0..cap], 0, cap);
     try std.testing.expect(ref.ptr == eh.rows.ptr);
     try std.testing.expectEqualSlices(u16, want0, ref[0 .. cap * k * 32]);
+
+    // A contended/checkpoint chunk can be smaller than the speculative read.
+    // Its prefix must reuse decoded rows, byte-identical to a direct read.
+    eh.ahead_start = 0;
+    eh.ahead_n = cap;
+    prompt.engramReadAheadAll(&eh, &c, p1[0..cap], 0, cap);
+    try std.testing.expectEqual(@as(?anyerror, null), eh.ahead_err);
+    for (0..2) |j| {
+        const small = cap / 2;
+        const prefix = try prompt.engramRows(&eh, j, tabs[j], p1[0..small], 0, small);
+        try std.testing.expect(prefix.ptr == eh.ahead_rows[j].ptr);
+        try std.testing.expectEqualSlices(u16, try leadWant(a, &eh, tabs[j], j, p1[0..small], 0, small), prefix[0 .. small * k * 32]);
+        try std.testing.expect(!eh.ahead_ready[j]);
+    }
+    // A different start or an undersized read must still take the direct path.
+    prompt.engramReadAheadAll(&eh, &c, p1[0..cap], 0, cap);
+    const shifted = try prompt.engramRows(&eh, 0, tabs[0], p1[0..5], 1, 4);
+    try std.testing.expect(shifted.ptr == eh.rows.ptr);
+    try std.testing.expectEqualSlices(u16, try leadWant(a, &eh, tabs[0], 0, p1[0..5], 1, 4), shifted);
+    eh.ahead_n = 2;
+    prompt.engramReadAheadAll(&eh, &c, p1[0..2], 0, 2);
+    const larger = try prompt.engramRows(&eh, 0, tabs[0], p1[0..4], 0, 4);
+    try std.testing.expect(larger.ptr == eh.rows.ptr);
+    try std.testing.expectEqualSlices(u16, try leadWant(a, &eh, tabs[0], 0, p1[0..4], 0, 4), larger);
+    eh.ahead_ready = .{ false, false };
 
     try eh.useLead(a, cap, rings);
     const Pass = struct {

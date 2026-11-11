@@ -1602,7 +1602,7 @@ pub fn engramRows(eh: *EngramHost, l: usize, t: engram_io.Table, seq: []const i3
             eh.lead_ready[l] = false;
             return eh.ahead_rows[l];
         }
-    } else if (l < 2 and eh.ahead_ready[l] and eh.ahead_start == start and eh.ahead_n == n) {
+    } else if (l < 2 and eh.ahead_ready[l] and eh.ahead_start == start and eh.ahead_n >= n) {
         eh.ahead_ready[l] = false;
         return eh.ahead_rows[l];
     }

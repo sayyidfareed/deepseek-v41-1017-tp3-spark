@@ -1242,12 +1242,12 @@ pub const Model = struct {
                 m.lead.begin(eh, c, seq, start, n);
                 break :ref;
             }
-            if (ahead != null and (eh.ahead_start != start or eh.ahead_n != n)) {
+            if (ahead != null and (eh.ahead_start != start or eh.ahead_n < n)) {
                 ahead.?.join();
                 ahead = null;
             }
             // rows read ahead that ended before a round or a piece's end are this chunk's when they cover it, both layers
-            const whole = eh.ahead_start == start and eh.ahead_n == n and eh.ahead_err == null and eh.ahead_ready[0] and (c.engram_layers.slice().len < 2 or eh.ahead_ready[1]);
+            const whole = eh.ahead_start == start and eh.ahead_n >= n and eh.ahead_err == null and eh.ahead_ready[0] and (c.engram_layers.slice().len < 2 or eh.ahead_ready[1]);
             if (ahead == null and !whole) {
                 eh.ahead_start = start;
                 eh.ahead_n = n;
@@ -1284,14 +1284,14 @@ pub const Model = struct {
                 if (eh.lead_on) {
                     // this layer's rows of the next chunk from now, a whole chunk ahead of their layer
                     const more = m.fill_seq.len > start + n and m.fill_seq.ptr == seq.ptr;
-                    const nn = if (more) @min(m.prefill_rows, m.fill_seq.len - start - n) else 0;
+                    const nn = if (more) engram_lead.aheadRows(m.prefill_rows, n, m.fill_seq.len - start - n) else 0;
                     m.lead.after(eh, c, seq, start, n, j, if (more) m.fill_seq[0 .. start + n + nn] else null, nn);
                 } else if (j + 1 < ne) {
                     if (!eh.ahead_ready[j + 1])
                         ahead = std.Thread.spawn(.{}, prompt.engramReadAhead, .{ eh, c, seq, start, n, j + 1 }) catch null;
                 } else if (m.fill_seq.len > start + n and m.fill_seq.ptr == seq.ptr) {
                     // the next chunk's rows while this one's layers run
-                    const nn = @min(m.prefill_rows, m.fill_seq.len - start - n);
+                    const nn = engram_lead.aheadRows(m.prefill_rows, n, m.fill_seq.len - start - n);
                     eh.ahead_start = start + n;
                     eh.ahead_n = nn;
                     eh.ahead_ready = .{ false, false };

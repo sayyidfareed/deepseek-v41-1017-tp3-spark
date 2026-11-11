@@ -1519,6 +1519,10 @@ pub fn Leader(comptime Dev: type) type {
                         std.Io.sleep(side.io, .fromNanoseconds(@min(open_at - now, status_nap_ns)), .awake) catch {};
                         now = monotonicNs();
                     }
+                    // A slow status exchange can outlast the throttle interval. Check the
+                    // grant independently, including after an overslept throttle, before
+                    // starting another synchronous exchange on the scheduler thread.
+                    if (now >= deadline) return .{ .pending = .{ .done = job.copied, .total = rx.blocks } };
                     job.asked_at = now;
                     self.status_asks += 1;
                     _ = self.ask(job.txn, .{ .status = .{} }, &replies) catch return self.failJob(id, job, .timeout, rank_wire.no_rank);

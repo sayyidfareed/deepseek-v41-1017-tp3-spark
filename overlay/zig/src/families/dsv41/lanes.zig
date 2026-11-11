@@ -811,21 +811,20 @@ pub const Lanes = struct {
         if (!try of(ptr).prefillPart(s, std.math.maxInt(usize))) return error.FillUnfinished;
     }
 
-    /// The prompt pass in pieces of `chunks` chunks (opened at its first): true once it reached the head and drew the first token.
+    /// Run at most `chunks` pieces; true after drawing the first token.
     fn prefillPartFn(ptr: *anyopaque, s: *lanes.Stream, chunks: usize) anyerror!bool {
         return of(ptr).prefillPart(s, chunks);
     }
 
     fn prefillPart(self: *Lanes, s: *lanes.Stream, chunks: usize) !bool {
         const m = self.m;
-        // Retain TP3 row reset and parked passes; sharded passes also run in pieces.
         self.rows = .{};
         const t0 = m.now();
         defer if (self.prof) |*p| {
             p.prefill += m.now() - t0;
         };
         if (self.fill) |f| if (f.s != s) {
-            // a prompt cuts in between this pass's pieces: it waits (one at most, no images), its next piece resumes it
+            // Park text passes between pieces.
             if (f.s.images.len > 0 or lanes.Engine.picturesPast(s.images, s.reuse.at)) return error.FillBusy;
             if (m.prefill_admission) {
                 if (self.parked_fills[f.slot] != null) return error.FillBusy;
@@ -849,7 +848,6 @@ pub const Lanes = struct {
         const f = &self.fill.?;
         const seq = self.seqs[f.slot].items;
         m.fill_seq = seq;
-        // a round may run before the next piece: the read-ahead done and the prompt's ids gone, as rank 1 does at its frame
         defer {
             m.joinAhead();
             m.fill_seq = &.{};
@@ -868,16 +866,14 @@ pub const Lanes = struct {
             }
             if (self.spill) |t| t.bump(f.base + start, f.base + start + n);
             f.head = blk: {
-                // TF_DS_KV_SHARD: the stream's twins pinned while its chunk runs (parts.zig setPartial), not between
+                // Pin sharded twins only during this chunk.
                 if (f.part) |id| self.kv.?.planner.setPartial(id, true);
                 defer if (f.part) |id| self.kv.?.planner.setPartial(id, false);
                 break :blk try m.fillChunk(seq[0 .. start + n], start, n, f.replay);
             };
             f.start += n;
             if (s.reuse.hook) |k| if (f.start < len and f.start <= f.replay and (f.start == f.last_end or markEnds(s.reuse.marks, f.start))) k.at(k.ptr, s, @intCast(f.start));
-            // the host's work between this pass's chunks (Stream.between: the prefill interleave's rounds, parked work's
-            // service): the read-ahead joined and the prompt's ids gone first, as at a piece's end and on rank 1, which
-            // reads ahead again at the next chunk
+            // Join read-ahead and clear prompt ids before interleaving.
             if (f.start < len and s.images.len == 0) if (s.between) |b| if (b.wanted(b.ptr)) {
                 m.joinAhead();
                 m.fill_seq = &.{};
@@ -885,12 +881,15 @@ pub const Lanes = struct {
                 m.fill_seq = seq;
             };
         }
-        if (f.start < f.len) return false;
+        if (f.start < f.len) {
+            if (s.prefill_contended) try m.stream.synchronize(); // prefill debt must not consume the decode allowance
+            return false;
+        }
         const done = f.*;
         self.fill = null;
         if (self.prof) |*p| p.prefills += 1;
         if (!done.head) return error.NoPromptLogits;
-        // a state read back from disk: the drafter's rings were rebuilt by the replay before the first draft
+        // Replay rebuilt restored drafter rings.
         if (self.spill != null and m.drafting() and done.restored) try m.spillCheckResumed(done.slot, done.len);
         const logits = try m.promptLogitsHost();
         if (logits_sha) {
@@ -904,7 +903,7 @@ pub const Lanes = struct {
         return true;
     }
 
-    /// A paused pass resumes: both ranks' model views back on its slot and extent, whose rows, rings and ids it kept.
+    /// Restore both ranks' slot, extent, rows, rings and ids.
     fn fillResume(self: *Lanes) !void {
         try self.resumeFill(self.paused.?);
         self.paused = null;
@@ -2808,11 +2807,10 @@ test "spill + shard: an owner-sharded reserve lands only on the follower planner
     other.generation = 0;
     try std.testing.expectError(error.SpillNotAgreed, pf.reserve(h, other));
 }
-
-
-/// A 4K compute tile may span two 2K cache blocks, but never skips a requested checkpoint.
+/// Contended 1K slices yield sooner; solo 4K tiles preserve 2K cache boundaries.
 fn prefillChunkRows(start: usize, len: usize, compute: usize, last_end: usize, marks: []const u32, contended: bool) usize {
-    var end = start + @min(if (contended) @min(compute, model.chunk_rows) else compute, len - start);
+    var end = start + @min(if (contended) @min(compute, model.chunk_rows / 2) else compute, len - start);
+    if (start % model.chunk_rows != 0) end = @min(end, std.mem.alignForward(usize, start, model.chunk_rows));
     if (last_end > start and last_end < end) end = last_end;
     for (marks) |mark| {
         const boundary = mark / model.chunk_rows * model.chunk_rows;
@@ -2821,19 +2819,21 @@ fn prefillChunkRows(start: usize, len: usize, compute: usize, last_end: usize, m
     return end - start;
 }
 
-test "4K prompt compute preserves checkpoints and steps down only under contention" {
-    try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(0, 16384, 4096, 14336, &.{}, true));
+test "prompt compute preserves checkpoints across contended and solo visits" {
+    try std.testing.expectEqual(@as(usize, 1024), prefillChunkRows(0, 16384, 4096, 14336, &.{}, true));
     try std.testing.expectEqual(@as(usize, 99), prefillChunkRows(4096, 4195, 4096, 2048, &.{}, true));
     try std.testing.expectEqual(@as(usize, 4096), prefillChunkRows(0, 16384, 4096, 14336, &.{}, false));
     try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(0, 16384, 4096, 14336, &.{ 2049, 8192 }, false));
     try std.testing.expectEqual(@as(usize, 2048), prefillChunkRows(12288, 16384, 4096, 14336, &.{}, false));
     try std.testing.expectEqual(@as(usize, 99), prefillChunkRows(4096, 4195, 4096, 2048, &.{}, false));
+    try std.testing.expectEqual(@as(usize, 1024), prefillChunkRows(1024, 16384, 4096, 14336, &.{}, false));
+    try std.testing.expectEqual(@as(usize, 4096), prefillChunkRows(2048, 16384, 4096, 14336, &.{}, false));
     for ([_]usize{ 2048, 4096 }) |compute| {
         var at: usize = 0;
         var visited: [4]bool = @splat(false);
         const ends = [_]u32{ 2048, 6144, 10240, 14336 };
         while (at < 16387) {
-            const n = prefillChunkRows(at, 16387, compute, 14336, &ends, at < 8192);
+            const n = prefillChunkRows(at, 16387, compute, 14336, &ends, at % 3072 != 1024);
             try std.testing.expect(n > 0 and n <= compute);
             at += n;
             for (ends, 0..) |e, i| if (at == e) { visited[i] = true; };
