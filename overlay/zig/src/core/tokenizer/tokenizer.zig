@@ -294,7 +294,12 @@ pub const Tokenizer = struct {
 
     /// Text for `ids` through the decoder chain; unknown ids are skipped. Caller frees with `a`.
     pub fn decode(t: *const Tokenizer, a: Allocator, ids: []const u32, skip_special_tokens: bool) Error![]u8 {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator); // (scratch never kept in `a`: see encode)
+        return t.decodeWith(a, ids, skip_special_tokens, std.heap.page_allocator);
+    }
+
+    /// Explicit temporary storage for callers that must erase request scratch.
+    pub fn decodeWith(t: *const Tokenizer, a: Allocator, ids: []const u32, skip_special_tokens: bool, scratch: Allocator) Error![]u8 {
+        var arena = std.heap.ArenaAllocator.init(scratch);
         defer arena.deinit();
         var ctx = steps.Context{ .a = arena.allocator(), .matcher = .{ .a = arena.allocator() } };
         var tokens = try std.ArrayList([]const u8).initCapacity(ctx.a, ids.len);

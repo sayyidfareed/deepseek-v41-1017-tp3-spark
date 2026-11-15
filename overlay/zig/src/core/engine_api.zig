@@ -5,6 +5,8 @@ const lanes = @import("lanes");
 const Allocator = std.mem.Allocator;
 
 /// The server's name for one request, unique while the process lives.
+pub const ZeroFree = lanes.ZeroFree;
+test { _ = @import("secure_pause_test.zig"); }
 pub const Id = u64;
 
 /// One request's sampling (Python's exact_sampling.Sampling); a request without one decodes greedily.
@@ -66,6 +68,8 @@ pub const grammar = lanes.grammar;
 
 /// A reply to decode. The request and every slice in it stay valid until its ``finished`` event.
 pub const Request = struct {
+    secure_request: bool = false,
+    secure_cache_ticket: ?*SecureCacheTicket = null, // borrowed until finished; never ordinary cache identity
     prompt: []const u32,
     /// The prompt's images in order, each span inside the prompt (its positions hold the image token).
     images: []const Image = &.{},
@@ -406,11 +410,19 @@ pub const KvParts = lanes.kv_parts.Stats;
 
 pub const SubmitError = error{ Closed, Busy };
 
+pub const SecureCacheTicket = lanes.stream.SecureCacheTicket;
+
 pub const Engine = struct {
     ctx: *anyopaque,
     vtable: *const VTable,
 
     pub const VTable = struct {
+        secure_shared: bool = false,
+        secure_cache_enter: ?*const fn (ctx: *anyopaque, ticket: *SecureCacheTicket) anyerror!void = null,
+        secure_cache_leave: ?*const fn (ctx: *anyopaque, ticket: *SecureCacheTicket) void = null,
+        secure_forget: ?*const fn (ctx: *anyopaque, scope: ?*const [32]u8) anyerror!usize = null,
+        secure_reset: ?*const fn (ctx: *anyopaque, entering: bool) anyerror!void = null,
+        secure_info: ?*const fn (ctx: *anyopaque) Info = null,
         info: *const fn (ctx: *anyopaque) Info,
         submit: *const fn (ctx: *anyopaque, id: Id, request: *const Request, sink: Sink) SubmitError!void,
         /// Ends a request between rounds; its ``finished`` (cancelled) still arrives. Unknown ids are ignored.
@@ -426,6 +438,13 @@ pub const Engine = struct {
 
     pub fn info(e: Engine) Info {
         return e.vtable.info(e.ctx);
+    }
+    pub fn secureReset(e: Engine, entering: bool) !void {
+        const reset = e.vtable.secure_reset orelse return error.SecureUnsupported;
+        try reset(e.ctx, entering);
+    }
+    pub fn secureInfo(e: Engine) Info {
+        return if (e.vtable.secure_info) |f| f(e.ctx) else e.info();
     }
     pub fn submit(e: Engine, id: Id, request: *const Request, sink: Sink) SubmitError!void {
         return e.vtable.submit(e.ctx, id, request, sink);
@@ -481,6 +500,7 @@ pub const keepalive = @import("keepalive.zig");
 
 test {
     _ = @import("lane_host.zig");
+    _ = @import("lane_host_privacy_test.zig");
     _ = @import("lane_host_reuse_test.zig");
     _ = @import("lane_host_fill_test.zig");
     _ = @import("prompt_cache.zig");

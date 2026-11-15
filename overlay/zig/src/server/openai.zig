@@ -129,7 +129,7 @@ fn plan(srv: *Server, cx: *Cx, is_chat: bool, raw: Value) errors.Refused!Plan {
     const body = try fields.parseNumbers(cx, raw);
     try fields.validateModalities(cx, body);
     try fields.probabilityOptions(cx, body);
-    if (srv.config.request_log) |path| request_log.append(cx.a, path, body);
+    if (!srv.config.secure_request) if (srv.config.request_log) |path| request_log.append(cx.a, path, body);
     var input: chat.Input = .{ .fields = undefined };
     // an engine with vision takes image parts: their placeholders in the text, their bytes in input.images
     var images: messages.Images = .{ .placeholder = if (srv.info.vision) |v| v.placeholder else "" };
@@ -142,6 +142,7 @@ fn plan(srv: *Server, cx: *Cx, is_chat: bool, raw: Value) errors.Refused!Plan {
         input.messages = try messages.normalizeImages(cx, (try messages.maskControls(cx.a, srv.text, m)).?, "system", srv.needs_user_after_tool, take);
     };
     input.images = images.list.items;
+    if (srv.config.secure_request and input.images.len != 0) return cx.refuse("secure vision is unavailable");
     if (!is_chat and input.messages.array.len == 0) input.prompt = try legacyPrompt(srv, cx, body.get("prompt"));
     input.token_ids = if (body.get("return_token_ids")) |v| v.truthy() else false;
     // ``body.get("max_tokens") or body.get("max_completion_tokens")``: both are ints or None by now
@@ -224,12 +225,15 @@ pub fn run(srv: *Server, a: Allocator, out: Out, gone: Gone, is_chat: bool, raw:
     var cx: Cx = .{ .a = a };
     var p = plan(srv, &cx, is_chat, raw) catch |e| {
         if (e == error.OutOfMemory) cx.message = "out of memory";
-        logRefused(id, cx.message);
+        if (!srv.config.secure_request) logRefused(id, cx.message);
         const body = (if (cx.kind == .other) errorOther(a, cx.message) else errorBody(a, &cx, field)) catch return;
         out.vt.reply(out.ctx, cx.status(), wrapError(a, body) catch return);
         return;
     };
     p.input.id = id;
+    if (srv.config.secure_request) {
+        p.input.secure_cache_ticket = gone.conn.secure_cache_ticket;
+    }
     var r: Run = .{ .srv = srv, .a = a, .out = out, .is_chat = is_chat, .plan = p, .id = id, .created = std.Io.Clock.real.now(srv.io).toSeconds() };
     if (p.stream) r.stream(gone, field) else r.whole(gone, field);
 }
@@ -339,7 +343,7 @@ const Run = struct {
             error.Failed => r.fail(&.{ .a = r.a, .kind = .server, .message = "the reply failed" }, field),
             error.Refused => {
                 if (cx.kind == .other) cx.kind = .server;
-                if (cx.kind != .server) logRefused(r.id, cx.message); // a 500 is a failure, not a refusal
+                if (cx.kind != .server) if (!r.srv.config.secure_request) logRefused(r.id, cx.message); // a 500 is a failure, not a refusal
                 r.fail(cx, field);
             },
         }
@@ -350,7 +354,7 @@ const Run = struct {
         const a = r.a;
         r.out.vt.open(r.out.ctx) catch return;
         if (!tools and r.is_chat) r.emit(r.chunk(roleDelta(a) catch return, null) catch return) catch return;
-        logRefused(r.id, cx.message);
+        if (!r.srv.config.secure_request) logRefused(r.id, cx.message);
         const body = errorBody(a, cx, field) catch return;
         r.emit(wrapError(a, body) catch return) catch return;
         r.out.vt.event(r.out.ctx, null) catch {};
@@ -471,7 +475,7 @@ const Run = struct {
             }
             return .{ .stands = stands, .matched = true };
         }
-        log.line("warning: {s}: the streamed tool call {d} is not the reply's parse ({d} sent, {d} parsed); its content follows the parse", .{ r.id, k, sent.len, parsed.len });
+        if (!r.srv.config.secure_request) log.line("warning: {s}: the streamed tool call {d} is not the reply's parse ({d} sent, {d} parsed); its content follows the parse", .{ r.id, k, sent.len, parsed.len });
         try r.contentRest(reply);
         return .{ .stands = stands, .matched = false };
     }
@@ -507,7 +511,7 @@ const Run = struct {
         var cx: Cx = .{ .a = a };
         // a context-window refusal is reported inside the stream; every other refusal is still a 400 before it opens
         var compaction: ?compact.Stamp = null;
-        const prepared = if (r.srv.config.compact_at == null) chat.prepare(r.srv, &cx, r.plan.input, gone) catch |e| {
+        const prepared = if (r.srv.config.secure_request or r.srv.config.compact_at == null) chat.prepare(r.srv, &cx, r.plan.input, gone) catch |e| {
             if (e == error.Refused and cx.kind == .context_length) return r.streamedContext(&cx, tools, field);
             return r.unsent(&cx, e, field);
         } else blk: {
@@ -528,7 +532,7 @@ const Run = struct {
             switch (e) {
                 error.Cancelled => return,
                 error.Refused => if (cx.kind != .other and cx.kind != .server) {
-                    logRefused(r.id, cx.message);
+                    if (!r.srv.config.secure_request) logRefused(r.id, cx.message);
                     const body = errorBody(a, &cx, field) catch return;
                     r.emit(wrapError(a, body) catch return) catch return;
                     r.out.vt.event(r.out.ctx, null) catch {};
@@ -537,7 +541,7 @@ const Run = struct {
                 else => {},
             }
             const message = if (e == error.Refused) cx.message else if (e == error.OutOfMemory) "out of memory" else "the reply failed";
-            log.line("stream error: {s}", .{message});
+            if (!r.srv.config.secure_request) log.line("stream error: {s}", .{message});
             const err = json.newObject(a) catch return;
             err.put(a, "message", .{ .string = message }) catch return;
             err.put(a, "type", .{ .string = "server_error" }) catch return;
@@ -587,7 +591,7 @@ const Run = struct {
             // off, a Harmony split of the text): the rest as the filter shows the answer, as such a stream went on before
             const tail = rest orelse blk: {
                 const view = r.plan.policy.content(a, reply_text.hideToolCallsAtFirstCloser(a, raw, true) catch return) catch return;
-                log.line("warning: {s}: the streamed prose is not the start of the reply's content; the rest goes out as the stream filter shows it", .{r.id});
+                if (!r.srv.config.secure_request) log.line("warning: {s}: the streamed prose is not the start of the reply's content; the rest goes out as the stream filter shows it", .{r.id});
                 break :blk if (std.mem.startsWith(u8, view, sent)) view[sent.len..] else "";
             };
             if (tail.len > 0) {

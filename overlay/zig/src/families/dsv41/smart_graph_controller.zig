@@ -8,6 +8,7 @@ const wire = @import("smart_graph_protocol.zig");
 const decision = @import("smart_graph_decision.zig");
 const state = @import("smart_graph_state.zig");
 const memory = @import("graph_retention.zig");
+const privacy = @import("smart_graph_private.zig");
 const testing = @import("builtin").is_test;
 const link = if (testing) @import("smart_graph_fake_link.zig") else @import("link.zig");
 const build = if (testing) struct {
@@ -89,6 +90,46 @@ pub const Runtime = struct {
     persistence: ?*PersistJob = null,
     persist_thread: ?std.Thread = null,
     persist_prepare_ns: u64 = 0,
+    private_count: usize = 0,
+    private_snapshot: ?*privacy.Snapshot = null,
+
+    pub fn privateEnter(s: *Runtime) !void {
+        if (!s.cfg.enabled) return;
+        if (s.failed or s.pending != null) return error.GraphControllerFailed;
+        // The deployer refuses persistent graph history for shared serving.
+        // Keep this boundary in the engine too, including direct launches.
+        if (s.persistence != null or s.stats_path != null) return error.GraphPrivatePersistence;
+        if (s.private_count == 0) {
+            const gpa = s.ledger.?.gpa;
+            const snapshot = try gpa.create(privacy.Snapshot);
+            errdefer gpa.destroy(snapshot);
+            try snapshot.begin(&s.ledger.?);
+            s.private_snapshot = snapshot;
+        }
+        s.private_count += 1;
+    }
+
+    pub fn privateLeave(s: *Runtime) !void {
+        if (!s.cfg.enabled) return;
+        if (s.private_count == 0 or s.pending != null) return error.GraphPrivateOwnership;
+        const remaining = s.private_count - 1;
+        const snapshot = s.private_snapshot orelse return error.GraphPrivateOwnership;
+        const gpa = snapshot.saved.gpa;
+        snapshot.end(&s.ledger.?);
+        std.crypto.secureZero(u8, std.mem.asBytes(snapshot));
+        gpa.destroy(snapshot);
+        s.private_snapshot = null;
+        s.private_count = 0;
+        s.before_available = 0; s.before_rss = 0; s.capture_started = 0;
+        s.recovery_at = 0; s.recovery_before = 0;
+        // A completed request's observations must not survive merely because
+        // another private request is still active. Begin a fresh temporary
+        // ledger from ordinary history, retaining only executable inventory.
+        if (remaining != 0) {
+            try s.privateEnter();
+            s.private_count = remaining;
+        }
+    }
 
     pub fn open(gpa: std.mem.Allocator, c: policy.Config, profile: u64, rank: u32, world: u32, peers: []const ?link.Link, owner: *anyopaque, retire_fn: *const fn (*anyopaque, Group) anyerror!void, mask_fn: *const fn (*anyopaque, Group) u64) !Runtime {
         if (world == 0 or world > 4 or rank >= world or peers.len < (if (rank == 0) world - 1 else 1)) return error.BadGraphTopology;
@@ -121,10 +162,16 @@ pub const Runtime = struct {
         const all = try s.exchange(boot);
         if (!all.ok) return error.GraphControllerInitFailed;
         if (s.ledger) |*l| l.clock = all.cost_ns;
-        std.debug.print("smart_graph_boot version=4.0.3 rank={d} world={d} enabled={} digest={x} generation=0 history={d} max_resident={d} max_ghost={d}\n", .{ rank, world, c.enabled, s.digest, if (s.ledger) |*l| l.ghost.count() else 0, c.limit, policy.max_ghost });
+        if (s.private_count == 0) std.debug.print("smart_graph_boot version=4.0.3 rank={d} world={d} enabled={} digest={x} generation=0 history={d} max_resident={d} max_ghost={d}\n", .{ rank, world, c.enabled, s.digest, if (s.ledger) |*l| l.ghost.count() else 0, c.limit, policy.max_ghost });
         return s;
     }
     pub fn close(s: *Runtime) void {
+        // Error teardown discards temporary learning before any possible save.
+        if (s.private_snapshot != null) {
+            s.pending = null;
+            s.private_count = 1;
+            s.privateLeave() catch unreachable;
+        }
         if (s.persist_thread) |t| {
             t.join();
             s.persist_thread = null;
@@ -216,7 +263,7 @@ pub const Runtime = struct {
         s.recovery_before = plan.available;
         s.recovery_at = l.clock +| 4;
         const receipt = try s.exchange(s.observation(.retired, plan.leaf));
-        std.debug.print("smart_graph_retire rank={d} generation={d} victims={d} available_before={d} available_immediate={d} delayed_recovery_pending=true destroy_total_ns={d} trim_total_ns={d} inventory={x}\n", .{ s.rank, l.generation, plan.plan.n, plan.available, receipt.available, l.destroy_ns, l.trim_ns, l.inventory() });
+        if (s.private_count == 0) std.debug.print("smart_graph_retire rank={d} generation={d} victims={d} available_before={d} available_immediate={d} delayed_recovery_pending=true destroy_total_ns={d} trim_total_ns={d} inventory={x}\n", .{ s.rank, l.generation, plan.plan.n, plan.available, receipt.available, l.destroy_ns, l.trim_ns, l.inventory() });
         return receipt;
     }
     /// Called once per verify/pass on ALL ranks, before kernels. No file or
@@ -237,7 +284,7 @@ pub const Runtime = struct {
             l.recovery_checks +|= 1;
             const recovered = all.available -| s.recovery_before;
             l.recovery_bytes +|= recovered;
-            std.debug.print("smart_graph_recovery rank={d} generation={d} available_delayed={d} host_available_growth={d} attribution=noisy_host_measurement\n", .{ s.rank, l.generation, all.available, recovered });
+            if (s.private_count == 0) std.debug.print("smart_graph_recovery rank={d} generation={d} available_delayed={d} host_available_growth={d} attribution=noisy_host_measurement\n", .{ s.rank, l.generation, all.available, recovered });
             s.recovery_at = 0;
         }
         _ = try s.apply(all);
@@ -308,13 +355,14 @@ pub const Runtime = struct {
         if (!all.ok) return error.GraphCaptureUnconfirmed;
         const l = &s.ledger.?;
         l.captured(key, all.cost_ns, all.bytes);
-        std.debug.print("smart_graph_capture rank={d} generation={d} kind={s} rows={d} bucket={d} steps={d} piece={d} greedy={} slowest_host_build_ns={d} marginal_bytes_estimate={d} byte_confident={} inventory={x}\n", .{ s.rank, l.generation, @tagName(key.group.kind), key.group.rows, key.group.bucket, key.group.steps, key.piece, key.greedy, all.cost_ns, all.bytes, all.bytes > 0, l.inventory() });
+        if (s.private_count == 0) std.debug.print("smart_graph_capture rank={d} generation={d} kind={s} rows={d} bucket={d} steps={d} piece={d} greedy={} slowest_host_build_ns={d} marginal_bytes_estimate={d} byte_confident={} inventory={x}\n", .{ s.rank, l.generation, @tagName(key.group.kind), key.group.rows, key.group.bucket, key.group.steps, key.piece, key.greedy, all.cost_ns, all.bytes, all.bytes > 0, l.inventory() });
     }
     fn report(s: *Runtime, available: u64, rss_max: u64) void {
+        if (s.private_count != 0) return;
         const l = &s.ledger.?;
-        std.debug.print("smart_graph_stats version=4.0.3 digest={x} generation={d} resident={d} ghost={d} hits={d} misses={d} captures={d} eager={d} evictions={d} ghost_returns={d} quick_returns={d} capture_host_ns={d} control_ns={d} polls={d} destroy_ns={d} trim_ns={d} available_min={d} reserve={d} recovery_checks={d} recovery_growth_noisy={d}\n", .{ s.digest, l.generation, l.resident.count(), l.ghost.count(), l.hits, l.misses, l.captures, l.eager, l.evictions, l.ghost_returns, l.quick_returns, l.capture_ns, l.control_ns, l.polls, l.destroy_ns, l.trim_ns, available, s.cfg.reserve, l.recovery_checks, l.recovery_bytes });
+        if (s.private_count == 0) std.debug.print("smart_graph_stats version=4.0.3 digest={x} generation={d} resident={d} ghost={d} hits={d} misses={d} captures={d} eager={d} evictions={d} ghost_returns={d} quick_returns={d} capture_host_ns={d} control_ns={d} polls={d} destroy_ns={d} trim_ns={d} available_min={d} reserve={d} recovery_checks={d} recovery_growth_noisy={d}\n", .{ s.digest, l.generation, l.resident.count(), l.ghost.count(), l.hits, l.misses, l.captures, l.eager, l.evictions, l.ghost_returns, l.quick_returns, l.capture_ns, l.control_ns, l.polls, l.destroy_ns, l.trim_ns, available, s.cfg.reserve, l.recovery_checks, l.recovery_bytes });
         if (s.persistence) |job| std.debug.print("smart_graph_persistence prepare_total_ns={d} writes={d} failures={d} busy={} asynchronous=true\n", .{ s.persist_prepare_ns, job.writes.load(.acquire), job.failures.load(.acquire), job.busy.load(.acquire) });
-        std.debug.print("smart_graph_memory rss_max_rank={d} available_min_rank={d} host_deltas_are_estimates=true\n", .{ rss_max, available });
+        if (s.private_count == 0) std.debug.print("smart_graph_memory rss_max_rank={d} available_min_rank={d} host_deltas_are_estimates=true\n", .{ rss_max, available });
     }
     fn loadFile(s: *Runtime, path: [:0]const u8, calibration: bool) void {
         if (testing) return;
@@ -331,14 +379,15 @@ pub const Runtime = struct {
         }
         if (n > state.capacity) return;
         if (calibration) state.loadCalibration(&s.ledger.?, s.digest, buf[0..n]) catch |err| {
-            std.debug.print("smart_graph_calibration ignored={s}\n", .{@errorName(err)});
+            if (s.private_count == 0) std.debug.print("smart_graph_calibration ignored={s}\n", .{@errorName(err)});
             return;
         } else state.restore(&s.ledger.?, s.digest, buf[0..n]) catch |err| {
-            std.debug.print("smart_graph_history ignored={s}\n", .{@errorName(err)});
+            if (s.private_count == 0) std.debug.print("smart_graph_history ignored={s}\n", .{@errorName(err)});
             return;
         };
     }
     fn saveFile(s: *Runtime) void {
+        if (s.private_count != 0) return;
         if (testing) return;
         const job = s.persistence orelse return;
         if (job.busy.load(.acquire)) return; // one bounded pending snapshot only

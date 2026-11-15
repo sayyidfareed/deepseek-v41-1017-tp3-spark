@@ -29,6 +29,8 @@ const kv_lanes = @import("kv_lanes.zig");
 const shard = @import("shard.zig");
 const rank_wire = @import("rank_wire.zig");
 const fingerprint = @import("fingerprint.zig");
+const secure_extent = @import("secure_extent.zig");
+const private_cache = @import("secure_cache_cluster.zig");
 
 const be = lanes.backend;
 const Model = model.Model;
@@ -61,7 +63,7 @@ pub var logits_sha = false;
 /// shard_xfer/shard_finish, the digest checks). Both on together share one rank_wire Leader (Lanes.rw, rank 0) and
 /// one Follower a follower (PairFollower): one Tracker sees every frame of the pair. (Kind 11, the untracked spill
 /// notes of round 2, is gone: a frame of it is BadFrame.)
-pub const Kind = enum(u8) { fill_begin = 1, fill_chunk = 2, verify = 3, pass = 4, snap_save = 5, snap_restore = 6, snap_drop = 7, fill_images = 8, done = 9, rank_wire = 10, fill_resume = 12 };
+pub const Kind = enum(u8) { fill_begin = 1, fill_chunk = 2, verify = 3, pass = 4, snap_save = 5, snap_restore = 6, snap_drop = 7, fill_images = 8, done = 9, rank_wire = 10, fill_resume = 12, secure_begin = 13, private_release = 14, private_check = 15, private_quiesce = 16, private_resume = 17, private_cache_save = 18, private_cache_restore = 19, private_cache_drop = 20 };
 
 comptime {
     std.debug.assert(@intFromEnum(Kind.rank_wire) == @import("rank_wire.zig").lanes_kind);
@@ -70,27 +72,37 @@ comptime {
 /// A frame being written.
 pub const Wire = struct {
     buf: std.ArrayList(u8) = .empty,
+    protected: bool = false,
+
+    pub fn erase(w: *Wire) void {
+        std.crypto.secureZero(u8, w.buf.allocatedSlice());
+    }
 
     pub fn begin(w: *Wire, gpa: std.mem.Allocator, kind: Kind, step: u64) !void {
+        if (w.protected) w.erase();
         w.buf.clearRetainingCapacity();
         try w.int(gpa, u8, @backingInt(kind));
         try w.int(gpa, u64, step);
     }
 
     pub fn int(w: *Wire, gpa: std.mem.Allocator, comptime T: type, v: T) !void {
+        var zero: lanes.ZeroFree = .{ .parent = gpa };
         var b: [@sizeOf(T)]u8 = undefined;
+        defer if (w.protected) std.crypto.secureZero(u8, &b);
         std.mem.writeInt(T, &b, v, .little);
-        try w.buf.appendSlice(gpa, &b);
+        try w.buf.appendSlice(if (w.protected) zero.allocator() else gpa, &b);
     }
 
     pub fn ids(w: *Wire, gpa: std.mem.Allocator, v: []const i32) !void {
+        var zero: lanes.ZeroFree = .{ .parent = gpa };
         try w.int(gpa, u32, @intCast(v.len));
-        try w.buf.ensureUnusedCapacity(gpa, v.len * 4);
+        try w.buf.ensureUnusedCapacity(if (w.protected) zero.allocator() else gpa, v.len * 4);
         for (v) |x| try w.int(gpa, i32, x);
     }
 
     pub fn deinit(w: *Wire, gpa: std.mem.Allocator) void {
-        w.buf.deinit(gpa);
+        var zero: lanes.ZeroFree = .{ .parent = gpa };
+        w.buf.deinit(if (w.protected) zero.allocator() else gpa);
     }
 };
 
@@ -176,15 +188,26 @@ pub const Built = struct {
     /// Each window's ids written at its positions in its slot's sequence (the rows past them dropped: the rejected
     /// rows of the last round), then the round's rows in window order.
     pub fn build(b: *Built, gpa: std.mem.Allocator, seqs: *[max_streams]std.ArrayList(i32), wins: []const Win) !round.Rows {
+        return b.buildProtected(gpa, seqs, wins, null);
+    }
+
+    pub fn buildProtected(b: *Built, gpa: std.mem.Allocator, seqs: *[max_streams]std.ArrayList(i32), wins: []const Win, private_slots: ?*const [max_streams]bool) !round.Rows {
         if (wins.len == 0 or wins.len > max_streams) return error.BadRound;
+        // Retire private rows before shortening the visible round. Otherwise a
+        // smaller next batch could strand private rows beyond r/n until reuse.
+        if (private_slots) |ps| {
+            for (ps, 0..) |private, slot| if (private) b.eraseSlot(slot);
+        }
         b.r = 0;
-        b.n = wins.len;
+        b.n = 0;
         for (wins, 0..) |w, i| {
             if (w.slot >= max_streams or w.ids.len == 0) return error.BadRound;
             if (b.r + w.ids.len > max_rows) return error.WindowTooWide;
             const seq = &seqs[w.slot];
             if (seq.items.len < w.start) return error.SequenceGap;
-            try seq.resize(gpa, w.start + w.ids.len);
+            var zero: lanes.ZeroFree = .{ .parent = gpa };
+            const private = if (private_slots) |ps| ps[w.slot] else false;
+            try seq.resize(if (private) zero.allocator() else gpa, w.start + w.ids.len);
             @memcpy(seq.items[w.start..], w.ids);
             for (w.ids, 0..) |id, j| {
                 b.ids[b.r + j] = id;
@@ -197,9 +220,28 @@ pub const Built = struct {
             b.wins[i] = .{ .row = b.r, .n = w.ids.len, .seq = seq.items[0 .. w.start + w.ids.len] };
             b.absorb[i] = w.absorb;
             b.r += w.ids.len;
+            b.n += 1;
         }
         const R = b.r;
         return .{ .ids = b.ids[0..R], .pos = b.pos[0..R], .slots = b.slots[0..R], .bases = b.bases[0..R], .ends = b.ends[0..R], .windows = b.wins[0..b.n], .parts = b.parts[0..R] };
+    }
+
+    /// Keep other windows' row offsets stable for pending structured redraws.
+    pub fn eraseSlot(b: *Built, slot: usize) void {
+        for (b.wins[0..b.n], 0..) |*w, i| {
+            if (w.n > 0 and b.slots[w.row] == slot) {
+                w.* = .{ .row = w.row, .n = 0, .seq = &.{} };
+                b.absorb[i] = false;
+            }
+        }
+        for (0..b.r) |i| if (b.slots[i] == slot) {
+            b.ids[i] = 0;
+            b.pos[i] = 0;
+            b.slots[i] = -1;
+            b.bases[i] = 0;
+            b.ends[i] = 0;
+            b.parts[i] = 0;
+        };
     }
 };
 
@@ -417,6 +459,10 @@ pub fn parseMs(a: std.mem.Allocator, text: []const u8) ![]const f64 {
 /// A stream's place in the pool and the drafts it holds; TF_DS_KV_SHARD: its planner stream, part and generation
 /// (parts.zig's Live), and whether its first decode round ran (planDecode).
 const Lane = struct {
+    secure_epoch: u64 = 0,
+    secure_registered: bool = false,
+    cache_lease: ?private_cache.ownership.Lease = null,
+    private_graph: bool = false,
     slot: usize,
     base: usize,
     end: usize,
@@ -468,6 +514,11 @@ const held_wait_ns: u64 = 10 * std.time.ns_per_s;
 const ring = 1024;
 
 pub const Lanes = struct {
+    shared_private_ready: bool = false,
+    private_cache: private_cache.ownership.Cache = .{ .allocator = undefined, .budget = 0 },
+    private_points: private_cache.Rank = .{},
+    next_private_point: u64 = 1,
+    private_request: bool = false,
     adaptive_learning: bool = false,
     gpa: std.mem.Allocator,
     m: *Model,
@@ -486,6 +537,7 @@ pub const Lanes = struct {
     solo_overhead: bool = false, // TF_DS_SOLO_OVERHEAD=1: a lone drafted stream's head windows cost the fixed draft allowance
     no_copies: bool = false, // TF_DS_NO_COPIES=1: a drafted stream proposes no suffix-lookup copy windows
     drawn: [ring]u32 = undefined,
+    drawn_private: [ring]?*const lanes.Stream = @splat(null),
     next: u64 = 0,
     snaps: std.ArrayList(*Snap) = .empty, // kept prompt states, oldest first
     next_snap: u64 = 1,
@@ -502,7 +554,7 @@ pub const Lanes = struct {
     rows: redraw.Rows = .{}, // the logits rows a redraw may read (structured output)
 
     pub fn init(gpa: std.mem.Allocator, m: *Model) Lanes {
-        var ln: Lanes = .{ .gpa = gpa, .m = m, .peer = if (m.world > 1) m.peer() else null };
+        var ln: Lanes = .{ .gpa = gpa, .m = m, .peer = if (m.world > 1) m.peer() else null, .private_cache = .{ .allocator = gpa, .budget = 0 } };
         // the round costs by rows: ROUND_MS[min(rows, len) - 1] (the served table, or TF_DS_ROUND_MS)
         const t = m.round_ms;
         for (&ln.wc, 0..) |*c, i| c.* = .{ .width = @intCast(i + 1), .ms = t[@min(i, t.len - 1)] };
@@ -510,8 +562,18 @@ pub const Lanes = struct {
         return ln;
     }
 
+    /// Startup-only policy and RAM-cache budget agreement, before listeners open.
+    pub fn checkSharedPrivate(self: *Lanes) !void { try private_cache.checkShared(self); }
+
     /// Tells rank 1 to stop, then frees the host state (the model is the caller's).
+    pub fn endPrivate(self: *Lanes) !void {
+        if (!self.private_request or self.peer == null) return error.NotPrivateLane;
+        try self.send(.done);
+        self.peer = null; // deinit must not send a second frame or swallow an error
+    }
+
     pub fn deinit(self: *Lanes) void {
+        _ = self.private_cache.forget(private_cache.Dropper(Lanes){ .ln = self }, null) catch std.c._exit(70);
         self.stopKv();
         for (self.snaps.items) |sn| {
             sn.buf.free();
@@ -540,6 +602,8 @@ pub const Lanes = struct {
             .redraw = redrawFn,
             .release = releaseFn,
             .timing_clean = timingCleanFn,
+            .private_cache_poll = privateCachePoll,
+            .private_cache_forget = privateCacheForget,
         } };
     }
 
@@ -570,6 +634,15 @@ pub const Lanes = struct {
         };
     }
 
+    fn privateCachePoll(ptr: *anyopaque) !void {
+        const ln = of(ptr);
+        if (ln.private_cache.budget != 0) try ln.private_cache.expire(private_cache.Dropper(Lanes){ .ln = ln }, ln.m.now());
+    }
+    fn privateCacheForget(ptr: *anyopaque, scope: ?*const [32]u8) !usize {
+        const ln = of(ptr);
+        return ln.private_cache.forget(private_cache.Dropper(Lanes){ .ln = ln }, scope);
+    }
+
     fn timingCleanFn(ptr: *anyopaque) bool {
         const m = of(ptr).m;
         return if (m.graph_control) |g| !g.failed and g.timing_clean else true;
@@ -579,9 +652,10 @@ pub const Lanes = struct {
         return @ptrCast(@alignCast(ptr));
     }
 
-    fn take(self: *Lanes, token: u32) u64 {
+    fn take(self: *Lanes, s: *const lanes.Stream, token: u32) u64 {
         const h = self.next;
         self.drawn[h % ring] = token;
+        self.drawn_private[h % ring] = if (s.secure_request) s else null;
         self.next += 1;
         return h;
     }
@@ -594,16 +668,34 @@ pub const Lanes = struct {
     }
 
     /// The frame being built goes to rank 1 (after `begin` and the fields), or to ranks 1-3 on the four-node split.
-    fn flush(self: *Lanes) !void {
+    pub fn flush(self: *Lanes) !void {
+        defer if (self.wire.protected) self.wire.erase();
         if (self.peer == null) return;
         for (self.m.followers()) |l| try l.?.send(self.wire.buf.items);
     }
 
-    fn begin(self: *Lanes, kind: Kind) !bool {
+    pub fn begin(self: *Lanes, kind: Kind) !bool {
         if (self.peer == null) return false;
+        if (self.wire.protected) self.wire.erase();
+        self.wire.protected = self.hasPrivate() or kind == .private_cache_save or kind == .private_cache_restore or kind == .private_cache_drop;
         try self.wire.begin(self.gpa, kind, self.step);
         self.step += 1;
         return true;
+    }
+
+    fn privateSlots(self: *const Lanes) [max_streams]bool {
+        var slots: [max_streams]bool = @splat(false);
+        var it = self.streams.iterator();
+        while (it.next()) |entry| if (entry.key_ptr.*.secure_request) {
+            slots[entry.value_ptr.slot] = true;
+        };
+        return slots;
+    }
+
+    fn hasPrivate(self: *const Lanes) bool {
+        var it = self.streams.keyIterator();
+        while (it.next()) |s| if (s.*.secure_request) return true;
+        return false;
     }
 
     fn send(self: *Lanes, kind: Kind) !void {
@@ -811,7 +903,7 @@ pub const Lanes = struct {
         if (!try of(ptr).prefillPart(s, std.math.maxInt(usize))) return error.FillUnfinished;
     }
 
-    /// Run at most `chunks` pieces; true after drawing the first token.
+    /// At most `chunks` pieces, true after the first token.
     fn prefillPartFn(ptr: *anyopaque, s: *lanes.Stream, chunks: usize) anyerror!bool {
         return of(ptr).prefillPart(s, chunks);
     }
@@ -824,8 +916,8 @@ pub const Lanes = struct {
             p.prefill += m.now() - t0;
         };
         if (self.fill) |f| if (f.s != s) {
-            // Park text passes between pieces.
-            if (f.s.images.len > 0 or lanes.Engine.picturesPast(s.images, s.reuse.at)) return error.FillBusy;
+            // Bounded fills may park text for an image; never park an image.
+            if (f.s.images.len > 0 or (!m.prefill_admission and lanes.Engine.picturesPast(s.images, s.reuse.at))) return error.FillBusy;
             if (m.prefill_admission) {
                 if (self.parked_fills[f.slot] != null) return error.FillBusy;
                 self.parked_fills[f.slot] = f;
@@ -872,6 +964,7 @@ pub const Lanes = struct {
                 break :blk try m.fillChunk(seq[0 .. start + n], start, n, f.replay);
             };
             f.start += n;
+            if (s.secure_request and f.start == f.last_end and f.start < len) try private_cache.save(self, s, f.start);
             if (s.reuse.hook) |k| if (f.start < len and f.start <= f.replay and (f.start == f.last_end or markEnds(s.reuse.marks, f.start))) k.at(k.ptr, s, @intCast(f.start));
             // Join read-ahead and clear prompt ids before interleaving.
             if (f.start < len and s.images.len == 0) if (s.between) |b| if (b.wanted(b.ptr)) {
@@ -892,13 +985,13 @@ pub const Lanes = struct {
         // Replay rebuilt restored drafter rings.
         if (self.spill != null and m.drafting() and done.restored) try m.spillCheckResumed(done.slot, done.len);
         const logits = try m.promptLogitsHost();
-        if (logits_sha) {
+        if (logits_sha and !self.private_request and !s.secure_request) {
             var dg: [32]u8 = undefined;
             std.crypto.hash.sha2.Sha256.hash(std.mem.sliceAsBytes(logits), &dg, .{});
             std.debug.print("{{\"prompt_logits\": \"{s}\", \"sha256\": \"{s}\"}}\n", .{ s.id, std.fmt.bytesToHex(dg, .lower) });
         }
         const token = try draw(logits, done.len, s.sampling);
-        self.streams.getPtr(s).?.first = self.take(token);
+        self.streams.getPtr(s).?.first = self.take(s, token);
         self.rows.prompt = s;
         return true;
     }
@@ -924,16 +1017,23 @@ pub const Lanes = struct {
     /// A prompt pass's start: its slot and extent, its images, rank 1's fill and the kept state it resumes from.
     fn fillOpen(self: *Lanes, s: *lanes.Stream) !void {
         const m = self.m;
-        const gpa = self.gpa;
+        if (s.secure_request and !self.private_request and !self.shared_private_ready) return error.PrivateRankNotReady;
+        // Profiles aggregate whole GPU rounds and cannot separate a private row
+        // from its ordinary neighbors. Refuse before placement or model work.
+        if (s.secure_request and (self.prof != null or m.prof or m.timer != null)) return error.SecureTracingEnabled;
+        var zero: lanes.ZeroFree = .{ .parent = self.gpa };
+        const gpa = if (s.secure_request or self.hasPrivate()) zero.allocator() else self.gpa;
         const ids = s.prompt();
         const len = ids.len;
         if (len == 0) return error.EmptyPrompt;
+        if (s.secure_request and !self.private_request and (self.kv != null or m.kvs != null)) return error.PrivateShardedLayoutUnsupported;
         const size = std.mem.alignForward(usize, len + s.max_new + m.eng.round_rows + 2, model.chunk_rows);
         if (size > m.request_cap) return error.PromptTooLong; // (the pool's, unless TF_DS_POOL or TF_DS_KV_SHARD part it)
         // TF_DS_KV_SHARD: parts.zig's planner places the extent inside one part (placeParts: part-local placeSoft and
         // eviction, borrowed twins, carries, live moves) and the lane carries its part into every round (Win.part)
         const kv = self.kv;
         if (kv == null and m.kvs != null) return error.KvShardNotStarted; // (startKv at open)
+        if (s.secure_request and self.streams.contains(s)) return error.PrivateOwnerMismatch;
         if (self.streams.fetchRemove(s)) |old| {
             self.used[old.value.slot] = false;
             if (kv) |k| try k.release(old.value.id);
@@ -991,10 +1091,10 @@ pub const Lanes = struct {
         if (parted == null) self.staleOver(if (kept != null and !moved) base + kept.?.at else base, base + size, kept);
         try self.streams.put(gpa, s, .{ .slot = slot, .base = base, .end = base + size, .id = if (parted) |pp| pp.id else 0, .part = if (parted) |pp| pp.part else 0, .gen = if (parted) |pp| pp.gen else 0 });
         self.used[slot] = true;
-        errdefer {
+        errdefer if (!s.secure_request) {
             _ = self.streams.remove(s);
             self.used[slot] = false;
-        }
+        };
         const seq = &self.seqs[slot];
         try seq.resize(gpa, len);
         for (seq.items, ids) |*q, id| q.* = @intCast(id);
@@ -1032,12 +1132,21 @@ pub const Lanes = struct {
             // Request.images) and its keyed ids derive from them (format.mediaIds), so no check here could fail;
             // checkPictureSeq is the tests' oracle for that sequence.
         }
+        self.streams.getPtr(s).?.secure_epoch = self.step;
+        if (s.secure_request and !self.private_request) if (m.graph_control) |*control| {
+            try control.privateEnter();
+            self.streams.getPtr(s).?.private_graph = true;
+        };
         if (try self.begin(.fill_begin)) {
             try self.wire.int(gpa, u32, @intCast(slot));
             try self.wire.int(gpa, u64, base);
+            try self.wire.int(gpa, u64, base + size);
+            try self.wire.int(gpa, u8, @intFromBool(s.secure_request and !self.private_request));
             try self.wire.ids(gpa, seq.items);
+            self.streams.getPtr(s).?.secure_registered = true;
             try self.flush();
         }
+        self.streams.getPtr(s).?.secure_registered = true;
         try m.fillBegin(slot, base);
         // (its twins' view, bound as the follower binds it at fill_begin; it stays the fill on both ranks past the last
         // chunk, until the next fill or its release: the first decode round's untwin unbinds on both)
@@ -1064,6 +1173,12 @@ pub const Lanes = struct {
         }
         const replay = len -| m.cfg.window;
         var start: usize = 0;
+        if (s.secure_request and s.images.len == 0 and !s.secure_cache_revoked()) {
+            const lease = try self.private_cache.begin(private_cache.Dropper(Lanes){ .ln = self }, &s.secure_cache_ticket.?.scope, m.now());
+            self.streams.getPtr(s).?.cache_lease = lease;
+            start = try private_cache.restore(self, s, @min(replay, len - 1));
+            s.cached = @intCast(start);
+        }
         if (kept) |sn| {
             if (try self.begin(.snap_restore)) {
                 try self.wire.int(gpa, u64, sn.id);
@@ -1084,7 +1199,7 @@ pub const Lanes = struct {
         // where this pass keeps states: the cache's marks and its last chunk end before the replay (the served lane's
         // kept prompt), each at the chunk end at or before it
         const last_end = @min(replay, len - 1) / model.chunk_rows * model.chunk_rows;
-        self.fill = .{ .s = s, .slot = slot, .len = len, .replay = replay, .last_end = last_end, .start = start, .base = base, .restored = if (kept) |sn| sn.restored else false, .part = if (parted) |pp| pp.id else null };
+        self.fill = .{ .s = s, .slot = slot, .len = len, .replay = replay, .last_end = last_end, .start = start, .base = base, .restored = if (kept) |sn| sn.restored else s.secure_request and start > 0, .part = if (parted) |pp| pp.id else null };
     }
 
     fn firstFn(ptr: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
@@ -1125,6 +1240,10 @@ pub const Lanes = struct {
         if (windows.len > max_streams) return error.WindowTooWide;
         var ids: [max_streams][max_rows]i32 = undefined;
         var wins: [max_streams]Win = undefined;
+        defer if (self.hasPrivate()) {
+            std.crypto.secureZero(u8, std.mem.asBytes(&ids));
+            std.crypto.secureZero(u8, std.mem.asBytes(&wins));
+        };
         try self.roundWins(windows, &ids, &wins);
         const t0 = m.now();
         if (try self.begin(.verify)) {
@@ -1134,7 +1253,8 @@ pub const Lanes = struct {
         }
         const t1 = m.now();
         if (self.spill) |t| for (wins[0..windows.len]) |w| t.bump(w.base + w.start, w.base + w.start + w.ids.len);
-        const rows = try self.built.build(gpa, &self.seqs, wins[0..windows.len]);
+        const private_slots = self.privateSlots();
+        const rows = try self.built.buildProtected(gpa, &self.seqs, wins[0..windows.len], &private_slots);
         try m.verify(rows, self.built.absorb[0..windows.len]);
         const t2 = m.now();
         // every row greedy: the device's argmax (R tokens back); else the logits for the host's draws
@@ -1247,6 +1367,13 @@ pub const Lanes = struct {
         var slots: [max_streams]i64 = undefined;
         var depths: [max_streams]usize = undefined;
         var asked: [max_streams]*Lane = undefined;
+        defer if (self.hasPrivate()) {
+            std.crypto.secureZero(i64, &tokens);
+            std.crypto.secureZero(i64, &q0);
+            std.crypto.secureZero(i64, &slots);
+            std.crypto.secureZero(usize, &depths);
+            std.crypto.secureZero(u8, std.mem.asBytes(&asked));
+        };
         var n: usize = 0;
         var steps: usize = 0;
         for (requests) |r| {
@@ -1403,6 +1530,7 @@ pub const Lanes = struct {
     pub fn snapSaveFn(ptr: *anyopaque, owner: ?*anyopaque, at: u32) anyerror!*anyopaque {
         const self = of(ptr);
         const s: *const lanes.Stream = @ptrCast(@alignCast(owner orelse return error.NoStream));
+        if (s.secure_request) return error.PrivateSnapshotRefused;
         const l = self.streams.getPtr(s) orelse return error.UnknownStream;
         if (at == 0 or at % model.chunk_rows != 0 or at > s.prompt_len -| self.m.cfg.window) return error.NotAChunkEnd;
         const sn = try self.gpa.create(Snap);
@@ -1560,6 +1688,56 @@ pub const Lanes = struct {
         }
     }
 
+    fn privateCleanupFrame(self: *Lanes, kind: Kind, lane: Lane) !void {
+        if (try self.begin(kind)) {
+            try self.wire.int(self.gpa, u32, @intCast(lane.slot));
+            try self.wire.int(self.gpa, u64, lane.secure_epoch);
+            try self.wire.int(self.gpa, u64, lane.base);
+            try self.wire.int(self.gpa, u64, lane.end);
+            try self.flush();
+        }
+    }
+
+    fn awaitPrivateCleanup(self: *Lanes, phase: secure_extent.CleanupPhase, lane: Lane) !void {
+        const deadline = link.Link.monotonicNs() +| 30 * std.time.ns_per_s;
+        if (self.peer != null) for (self.m.followers()) |peer| {
+            var packet: [13]u8 = undefined;
+            const got = try (peer orelse return error.PrivateRankMissing).recvDeadline(&packet, deadline);
+            try secure_extent.checkPhaseAcknowledgement(got, phase, lane.secure_epoch, @intCast(lane.slot));
+        };
+    }
+
+    fn erasePrivateStorage(self: *Lanes, s: *lanes.Stream, lane: Lane) !void {
+        if (self.kv != null or self.m.kvs != null) return error.PrivateShardedLayoutUnsupported;
+        if (lane.secure_registered) {
+            try self.privateCleanupFrame(.private_quiesce, lane);
+            try self.m.comm.privateFence(lane.secure_epoch, self.m.stream);
+            try self.awaitPrivateCleanup(.fenced, lane);
+            // No rank can still be reading another rank's NET payload here.
+            try self.privateCleanupFrame(.private_release, lane);
+            if (self.spill) |t| { t.bump(lane.base, lane.end); t.bumpSlot(lane.slot); }
+            try self.m.eraseStreamStorage(lane.slot, lane.base, lane.end);
+            try self.m.eraseSharedRoundScratch();
+            try self.m.comm.privateErase(lane.secure_epoch, self.m.stream);
+            try self.awaitPrivateCleanup(.erased, lane);
+            try self.privateCleanupFrame(.private_resume, lane);
+            try self.m.comm.privateResume(lane.secure_epoch, self.m.stream);
+            try self.awaitPrivateCleanup(.resumed, lane);
+        }
+        var zero: lanes.ZeroFree = .{ .parent = self.gpa };
+        self.seqs[lane.slot].deinit(zero.allocator());
+        self.seqs[lane.slot] = .empty;
+        self.built.eraseSlot(lane.slot);
+        self.rows.forget(s);
+        if (lane.private_graph) try self.m.graph_control.?.privateLeave();
+        for (&self.drawn_private, &self.drawn) |*owner, *token| if (owner.* == s) {
+            std.crypto.secureZero(u8, std.mem.asBytes(token));
+            owner.* = null;
+        };
+        // Hash-map removal otherwise leaves the inline held tokens in its old cell.
+        std.crypto.secureZero(u8, std.mem.asBytes(self.streams.getPtr(s).?));
+    }
+
     fn releaseFn(ptr: *anyopaque, s: *lanes.Stream) void {
         const self = of(ptr);
         if (self.fill) |f| if (f.s == s) {
@@ -1571,6 +1749,16 @@ pub const Lanes = struct {
             self.paused = null;
         };
         for (&self.parked_fills) |*f| if (f.* != null and f.*.?.s == s) { f.* = null; };
+        if (s.secure_request and !self.private_request) if (self.streams.get(s)) |lane| {
+            if (lane.cache_lease) |lease| {
+                if (s.reason != .stop and s.reason != .length) self.private_cache.revoke(private_cache.Dropper(Lanes){ .ln = self }, lease) catch std.c._exit(70)
+                else self.private_cache.end(lease, self.m.now());
+            }
+            self.erasePrivateStorage(s, lane) catch std.c._exit(70);
+            _ = self.streams.remove(s);
+            self.used[lane.slot] = false;
+            return;
+        };
         const kv = self.streams.fetchRemove(s) orelse {
             if (self.kv) |k| k.forgetKey(@intFromPtr(s)); // (a request that never placed: its refusal record goes)
             return;
@@ -1912,13 +2100,27 @@ pub fn followWith(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower) !vo
 /// followWith, with `fx` for the pair's one rank_wire Follower's hello instead of its default: the spill side's full
 /// fingerprint when the tier is on, else (TF_DS_KV_SHARD alone) round 2's shard-only hello (kv_lanes.Follower.exchange).
 pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx: ?fingerprint.Exchange) !void {
+    return followMode(gpa, m, spill, fx, false);
+}
+
+pub fn followPrivate(gpa: std.mem.Allocator, m: *Model) !void {
+    return followMode(gpa, m, null, null, true);
+}
+
+fn followMode(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx: ?fingerprint.Exchange, private_request: bool) !void {
+    var zero: lanes.ZeroFree = .{ .parent = gpa };
     const peer = m.peer();
     const buf = try gpa.alloc(u8, (m.pool_cap + 1) * 4 + (1 << 16));
-    defer gpa.free(buf);
+    defer zero.allocator().free(buf);
+    var shared_private_ready = false;
+    var private_points: private_cache.Rank = .{};
+    defer private_points.drop(m, 0) catch std.c._exit(70);
+    var private_cleanup: ?struct { slot: u32, epoch: u64, lo: usize, hi: usize, erased: bool } = null;
+    var private_owners: [max_streams]?secure_extent.Ownership = @splat(null);
     var seqs: [max_streams]std.ArrayList(i32) = @splat(.empty);
-    defer for (&seqs) |*q| q.deinit(gpa);
+    defer for (&seqs) |*q| q.deinit(zero.allocator());
     var win_ids: [max_streams]std.ArrayList(i32) = @splat(.empty);
-    defer for (&win_ids) |*q| q.deinit(gpa);
+    defer for (&win_ids) |*q| q.deinit(zero.allocator());
     // on every exit, before `seqs` goes: the Engram readers (the read-ahead, TF_DS_ENGRAM_LEAD's) may still be reading
     // a prompt's ids, and an exit from a bad frame comes before the join the loop does for the next frame
     defer {
@@ -1926,6 +2128,7 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
         m.fill_seq = &.{};
     }
     var built: Built = .{};
+    defer if (private_request) std.crypto.secureZero(u8, std.mem.asBytes(&built));
     var step: u64 = 0;
     var slot: usize = 0;
     var img_rows: std.ArrayList(u8) = .empty; // a prompt's image rows as their pieces come
@@ -1964,7 +2167,15 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
         if (spill) |sd| while (sd.busy() and !try peer.readable(2 * std.time.ns_per_ms)) sd.service(std.time.ns_per_ms);
         // the next primitive, polled for 20 ms before the read blocks (rank 0 sends it a fraction of a millisecond
         // after this rank's GPU goes idle in a decode; a sleeping thread would add its core's wake-up to every frame)
-        var r: Reader = .{ .b = try peer.recvSpin(buf, 20 * std.time.ns_per_ms) };
+        const private_before = for (private_owners) |owner| { if (owner != null) break true; } else false;
+        const packet = try peer.recvSpin(buf, 20 * std.time.ns_per_ms);
+        // A private fill registers its owner below, before this defer executes.
+        // Every consumed private frame is erased, including a failed parse.
+        defer {
+            const private_after = for (private_owners) |owner| { if (owner != null) break true; } else false;
+            if (private_request or private_before or private_after or (packet.len != 0 and packet[0] >= 18 and packet[0] <= 20)) std.crypto.secureZero(u8, buf[0..packet.len]);
+        }
+        var r: Reader = .{ .b = packet };
         const kind: Kind = switch (try r.int(u8)) {
             1 => .fill_begin,
             2 => .fill_chunk,
@@ -1977,23 +2188,76 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
             9 => .done,
             10 => .rank_wire,
             12 => .fill_resume,
+            13 => .secure_begin,
+            14 => .private_release,
+            15 => .private_check,
+            16 => .private_quiesce,
+            17 => .private_resume,
+            18 => .private_cache_save,
+            19 => .private_cache_restore,
+            20 => .private_cache_drop,
             else => return error.BadFrame,
+        };
+        if (private_cleanup) |pending| {
+            const expected: Kind = if (pending.erased) .private_resume else .private_release;
+            if (kind != expected) return error.PrivateCleanupPhaseMismatch;
+        }
+        if (private_request) switch (kind) {
+            .fill_begin, .fill_chunk, .fill_resume, .verify, .pass, .done => {},
+            else => return error.SecureFrameRefused,
         };
         if (try r.int(u64) != step) return error.OutOfStep;
         step += 1;
-        if (spill) |sd| sd.service(std.time.ns_per_ms); // (rank 0 pumps between its primitives alike)
+        if (private_cleanup == null) if (spill) |sd| sd.service(std.time.ns_per_ms); // no new work while fenced
         // a chunk's read-ahead of the next is done before anything but that chunk (a prompt's ids may change)
         if (kind != .fill_chunk and kind != .snap_save and kind != .snap_restore and kind != .fill_images and kind != .rank_wire) {
             m.joinAhead();
             m.fill_seq = &.{};
         }
         switch (kind) {
+            .private_cache_save, .private_cache_restore, .private_cache_drop => {
+                if (!shared_private_ready) return error.PrivateRankNotReady;
+                private_cache.follow(&private_points, m, &r, &private_owners, @intFromEnum(kind), step - 1) catch std.c._exit(70);
+            },
+            .private_check => {
+                const private_budget = try r.int(u64);
+                if (r.rest().len != 0 or private_before) return error.BadFrame;
+                private_points.budget = @intCast(private_budget);
+                if (kvf != null or m.kvs != null) return error.PrivateShardedLayoutUnsupported;
+                if (m.prof or m.timer != null) return error.SecureTracingEnabled;
+                _ = try @import("secure_policy.zig").Guard.dormant();
+                try m.comm.checkSharedPrivate();
+                const receipt = secure_extent.readinessAcknowledgement(step - 1, @intCast(m.rank));
+                try peer.sendDeadline(&receipt, link.Link.monotonicNs() +| 30 * std.time.ns_per_s);
+                shared_private_ready = true;
+            },
+            .secure_begin => {
+                const window = try r.int(u64);
+                const bytes = try r.int(u64);
+                if (r.rest().len != 0) return error.BadFrame;
+                const idle = if (spill) |sd| !sd.busy() else true;
+                @import("secure_cluster.zig").follow(gpa, m, .{ .window = @intCast(window), .device_bytes = @intCast(bytes) }, idle, step - 1) catch {
+                    // Do not unwind through the ordinary model with uncertain
+                    // private GPU work, or retain the failed request in memory.
+                    std.c._exit(70);
+                };
+            },
             .fill_begin => {
                 slot = try r.int(u32);
                 const base = try r.int(u64);
-                if (slot >= max_streams) return error.BadSlot;
+                const end = try r.int(u64);
+                const private_flag = try r.int(u8);
+                if (slot >= m.streams or slot >= max_streams or base >= end or end > m.pool_cap or private_flag > 1) return error.BadSlot;
+                if (private_owners[slot] != null) return error.PrivateOwnerMismatch;
+                if (private_flag == 1) {
+                    if (!shared_private_ready) return error.PrivateRankNotReady;
+                    if (kvf != null or private_request) return error.PrivateShardedLayoutUnsupported;
+                    if (m.prof or m.timer != null) return error.SecureTracingEnabled;
+                    if (m.graph_control) |*control| try control.privateEnter();
+                    private_owners[slot] = .{ .epoch = step - 1, .lo = @intCast(base), .hi = @intCast(end) };
+                }
                 img_rows.clearRetainingCapacity();
-                try r.ids(gpa, &seqs[slot]);
+                try r.ids(if (private_flag == 1 or private_request) zero.allocator() else gpa, &seqs[slot]);
                 fill_base = @intCast(base);
                 if (spill) |sd| sd.bumpSlot(slot);
                 if (m.fillBegin(slot, @intCast(base))) {
@@ -2005,7 +2269,7 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
                 slot = try r.int(u32);
                 const base = try r.int(u64);
                 if (slot >= max_streams) return error.BadSlot;
-                fill_base = @intCast(base); // the paused pass's extent, for the spill tier's bumps (not a new prompt: no bumpSlot)
+                fill_base = @intCast(base); // resumed extent: no bumpSlot
                 if (m.fillBegin(slot, @intCast(base))) {
                     if (kvf) |k| try k.fillBegin(slot, @intCast(base)); // (its twins' view again, as rank 0 binds it at its resume)
                 } else |err| refused(err);
@@ -2025,12 +2289,22 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
                 const nw = try r.int(u32);
                 if (nw == 0 or nw > max_streams) return error.BadFrame;
                 var wins: [max_streams]Win = undefined;
+                var private_slots: [max_streams]bool = @splat(private_request);
+                for (private_owners, 0..) |owner, i| if (owner != null) { private_slots[i] = true; };
+                const private_batch = std.mem.indexOfScalar(bool, &private_slots, true) != null;
+                defer if (private_batch) {
+                    for (&win_ids) |*ids| {
+                        std.crypto.secureZero(i32, ids.allocatedSlice());
+                        ids.clearRetainingCapacity();
+                    }
+                    std.crypto.secureZero(u8, std.mem.asBytes(&wins));
+                };
                 for (0..nw) |k| {
-                    wins[k] = try readWin(&r, gpa, &win_ids[k], kvf != null);
+                    wins[k] = try readWin(&r, if (private_batch) zero.allocator() else gpa, &win_ids[k], kvf != null);
                     // TF_DS_KV_SHARD: a round naming a reused extent (its part or generation not the planner's) fails closed
                     if (kvf) |kf| try kf.checkWin(wins[k].slot, wins[k].base, wins[k].end, @intCast(wins[k].part), wins[k].gen);
                 }
-                const rows = try built.build(gpa, &seqs, wins[0..nw]);
+                const rows = try built.buildProtected(gpa, &seqs, wins[0..nw], &private_slots);
                 if (spill) |sd| for (wins[0..nw]) |w| sd.bump(w.base + w.start, w.base + w.start + w.ids.len);
                 m.verify(rows, built.absorb[0..nw]) catch |err| try roundRefused(err);
                 if (m.prof) {
@@ -2046,6 +2320,11 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
                 var tokens: [max_streams]i64 = undefined;
                 var q0: [max_streams]i64 = undefined;
                 var slots: [max_streams]i64 = undefined;
+                defer if (private_request or private_before) {
+                    std.crypto.secureZero(i64, &tokens);
+                    std.crypto.secureZero(i64, &q0);
+                    std.crypto.secureZero(i64, &slots);
+                };
                 for (0..n) |i| {
                     tokens[i] = try r.int(i64);
                     q0[i] = try r.int(i64);
@@ -2078,6 +2357,7 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
                 const id = try r.int(u64);
                 const s: usize = try r.int(u32);
                 if (s >= max_streams) return error.BadSlot;
+                if (private_owners[s] != null) return error.PrivateSnapshotRefused;
                 var b = try cuda.DeviceBuffer.alloc(m.ctx.d, m.snapBytes());
                 m.snapCopy(s, b.ptr, true) catch |err| {
                     b.free();
@@ -2090,6 +2370,7 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
                 const id = try r.int(u64);
                 const s: usize = try r.int(u32);
                 if (s >= max_streams) return error.BadSlot;
+                if (private_owners[s] != null) return error.PrivateSnapshotRefused;
                 const from: usize = @intCast(try r.int(u64));
                 const to: usize = @intCast(try r.int(u64));
                 const at: usize = @intCast(try r.int(u64));
@@ -2099,6 +2380,56 @@ pub fn followPair(gpa: std.mem.Allocator, m: *Model, spill: ?*SpillFollower, fx:
                     m.copyExtent(from, to, at) catch |err| refused(err);
                 }
                 m.snapCopy(s, b.ptr, false) catch |err| refused(err);
+            },
+            .private_quiesce => {
+                const private_slot = try r.int(u32);
+                const epoch = try r.int(u64);
+                const lo: usize = @intCast(try r.int(u64));
+                const hi: usize = @intCast(try r.int(u64));
+                if (private_slot >= max_streams or r.rest().len != 0 or private_cleanup != null) return error.BadFrame;
+                const owner = private_owners[private_slot] orelse return error.PrivateOwnerMismatch;
+                try owner.check(epoch, lo, hi);
+                try m.comm.privateFence(epoch, m.stream);
+                private_cleanup = .{ .slot = private_slot, .epoch = epoch, .lo = lo, .hi = hi, .erased = false };
+                const receipt = secure_extent.phaseAcknowledgement(.fenced, epoch, private_slot);
+                try peer.sendDeadline(&receipt, link.Link.monotonicNs() +| 30 * std.time.ns_per_s);
+            },
+            .private_release => {
+                const private_slot = try r.int(u32);
+                const epoch = try r.int(u64);
+                const lo: usize = @intCast(try r.int(u64));
+                const hi: usize = @intCast(try r.int(u64));
+                if (private_slot >= max_streams or r.rest().len != 0) return error.BadFrame;
+                const pending = private_cleanup orelse return error.PrivateCleanupPhaseMismatch;
+                if (pending.slot != private_slot or pending.epoch != epoch or pending.erased) return error.PrivateCleanupPhaseMismatch;
+                const owner = private_owners[private_slot] orelse return error.PrivateOwnerMismatch;
+                try owner.check(epoch, lo, hi);
+                if (spill) |sd| { sd.bump(lo, hi); sd.bumpSlot(private_slot); }
+                try m.eraseStreamStorage(private_slot, lo, hi);
+                try m.eraseSharedRoundScratch();
+                try m.comm.privateErase(epoch, m.stream);
+                seqs[private_slot].deinit(zero.allocator());
+                seqs[private_slot] = .empty;
+                built.eraseSlot(private_slot);
+                if (m.graph_control) |*control| try control.privateLeave();
+                private_owners[private_slot] = null;
+                private_cleanup.?.erased = true;
+                const acknowledgement = secure_extent.acknowledgement(epoch, private_slot);
+                try peer.sendDeadline(&acknowledgement, link.Link.monotonicNs() +| 30 * std.time.ns_per_s);
+            },
+            .private_resume => {
+                const private_slot = try r.int(u32);
+                const epoch = try r.int(u64);
+                const lo = try r.int(u64);
+                const hi = try r.int(u64);
+                const pending = private_cleanup orelse return error.PrivateCleanupPhaseMismatch;
+                if (r.rest().len != 0 or !pending.erased or pending.slot != private_slot or pending.epoch != epoch or
+                    pending.lo != lo or pending.hi != hi)
+                    return error.PrivateCleanupPhaseMismatch;
+                try m.comm.privateResume(epoch, m.stream);
+                private_cleanup = null;
+                const receipt = secure_extent.phaseAcknowledgement(.resumed, epoch, private_slot);
+                try peer.sendDeadline(&receipt, link.Link.monotonicNs() +| 30 * std.time.ns_per_s);
             },
             .snap_drop => {
                 const id = try r.int(u64);
@@ -2363,6 +2694,7 @@ const TestDev = struct {
 /// A stream as placeParts and releaseFn read it.
 fn testStream(id: []const u8, saved: ?*Snap) lanes.Stream {
     var s: lanes.Stream = undefined;
+    s.secure_request = false;
     s.id = id;
     s.reuse = .{ .saved = if (saved) |sn| @ptrCast(sn) else null };
     s.reuse_failed = false;
@@ -2841,4 +3173,145 @@ test "prompt compute preserves checkpoints across contended and solo visits" {
         try std.testing.expectEqual(@as(usize, 16387), at);
         for (visited) |hit| try std.testing.expect(hit);
     }
+}
+
+
+test "secure extent leader and follower paths compile without GPU execution" {
+    const Entry = struct {
+        fn head(ln: *Lanes) be.Backend { return ln.backend(); }
+        fn worker(a: std.mem.Allocator, m: *Model) anyerror!void { try follow(a, m); }
+    };
+    const head: *const fn (*Lanes) be.Backend = &Entry.head;
+    const worker: *const fn (std.mem.Allocator, *Model) anyerror!void = &Entry.worker;
+    try std.testing.expect(@intFromPtr(head) != 0 and @intFromPtr(worker) != 0);
+}
+
+test "secure extent refuses private snapshots before accessing GPU or stream placement" {
+    var m: Model = undefined;
+    var ln = testLanes(&m);
+    var s = testStream("synthetic-private", null);
+    s.secure_request = true;
+    try std.testing.expectError(error.PrivateSnapshotRefused, Lanes.snapSaveFn(&ln, &s, model.chunk_rows));
+    s.secure_request = false;
+    try std.testing.expectError(error.UnknownStream, Lanes.snapSaveFn(&ln, &s, model.chunk_rows));
+    try std.testing.expectEqual(@as(usize, 0), ln.snaps.items.len);
+}
+
+test "secure extent refuses round profiling before reading prompt or accessing GPU" {
+    var m: Model = undefined;
+    var ln = testLanes(&m);
+    ln.shared_private_ready = true;
+    var s = testStream("synthetic-private", null);
+    s.secure_request = true;
+    m.prof = true;
+    m.timer = null;
+    try std.testing.expectError(error.SecureTracingEnabled, ln.fillOpen(&s));
+    m.prof = false;
+    var timer: round.PhaseTimer = undefined;
+    m.timer = &timer;
+    try std.testing.expectError(error.SecureTracingEnabled, ln.fillOpen(&s));
+    try std.testing.expectEqual(@as(usize, 0), ln.streams.count());
+}
+
+test "secure extent refuses private work before shared rank readiness" {
+    var m: Model = undefined;
+    var ln = testLanes(&m);
+    var s = testStream("synthetic-private", null);
+    s.secure_request = true;
+    try std.testing.expectError(error.PrivateRankNotReady, ln.fillOpen(&s));
+    try std.testing.expectEqual(@as(usize, 0), ln.streams.count());
+}
+
+test "secure extent wire growth erases replaced storage without changing packet or neighbor" {
+    var memory: [8192]u8 = @splat(0xa5);
+    var fixed = std.heap.FixedBufferAllocator.init(&memory);
+    const a = fixed.allocator();
+    const neighbor = try a.alloc(u8, 17);
+    @memset(neighbor, 0x79);
+    var w: Wire = .{ .protected = true };
+    defer w.deinit(a);
+    try w.begin(a, .verify, 77);
+    const old = w.buf.allocatedSlice();
+    const ids: [64]i32 = @splat(1234);
+    try w.ids(a, &ids);
+    try std.testing.expect(old.ptr != w.buf.items.ptr);
+    try std.testing.expect(std.mem.allEqual(u8, old, 0));
+    var r: Reader = .{ .b = w.buf.items };
+    try std.testing.expectEqual(@as(u8, @intFromEnum(Kind.verify)), try r.int(u8));
+    try std.testing.expectEqual(@as(u64, 77), try r.int(u64));
+    try std.testing.expectEqual(@as(u32, 64), try r.int(u32));
+    for (ids) |id| try std.testing.expectEqual(id, try r.int(i32));
+    w.erase();
+    try std.testing.expect(std.mem.allEqual(u8, w.buf.allocatedSlice(), 0));
+    try std.testing.expect(std.mem.allEqual(u8, neighbor, 0x79));
+}
+
+test "secure extent mixed round erases grown private sequence and only released window" {
+    var memory: [16384]u8 = @splat(0xa5);
+    var fixed = std.heap.FixedBufferAllocator.init(&memory);
+    const a = fixed.allocator();
+    var seqs: [max_streams]std.ArrayList(i32) = @splat(.empty);
+    try seqs[1].appendSlice(a, &.{ 11, 12 });
+    const old = seqs[1].allocatedSlice();
+    try seqs[0].appendSlice(a, &.{ 21, 22 });
+    const ids: [40]i32 = @splat(1234);
+    var private_slots: [max_streams]bool = @splat(false);
+    private_slots[1] = true;
+    var b: Built = .{};
+    const rows = try b.buildProtected(a, &seqs, &.{
+        .{ .slot = 1, .base = 2048, .end = 4096, .start = 2, .absorb = true, .ids = &ids },
+        .{ .slot = 0, .base = 0, .end = 2048, .start = 2, .absorb = false, .ids = &.{23} },
+    }, &private_slots);
+    try std.testing.expect(old.ptr != seqs[1].items.ptr);
+    try std.testing.expect(std.mem.allEqual(i32, old, 0));
+    try std.testing.expectEqualSlices(i32, &.{ 21, 22, 23 }, seqs[0].items);
+    try std.testing.expectEqual(@as(i64, 23), rows.ids[40]);
+    b.eraseSlot(1);
+    try std.testing.expect(std.mem.allEqual(i64, b.ids[0..40], 0));
+    try std.testing.expectEqual(@as(usize, 0), b.wins[0].seq.len);
+    try std.testing.expectEqual(@as(usize, 0), b.wins[0].n);
+    try std.testing.expectEqual(@as(i64, 23), b.ids[40]);
+    try std.testing.expectEqualSlices(i32, &.{ 21, 22, 23 }, b.wins[1].seq);
+    try std.testing.expectEqual(@as(usize, 40), b.wins[1].row);
+}
+
+
+test "secure extent shorter mixed round leaves no private tail from previous batch" {
+    const a = std.testing.allocator;
+    var seqs: [max_streams]std.ArrayList(i32) = @splat(.empty);
+    defer for (&seqs) |*s| s.deinit(a);
+    var private_slots: [max_streams]bool = @splat(false);
+    private_slots[1] = true;
+    var b: Built = .{};
+    _ = try b.buildProtected(a, &seqs, &.{
+        .{ .slot = 0, .base = 0, .end = 2048, .start = 0, .absorb = false, .ids = &.{23} },
+        .{ .slot = 1, .base = 2048, .end = 4096, .start = 0, .absorb = true, .ids = &.{ 91, 92, 93, 94 } },
+    }, &private_slots);
+    _ = try b.buildProtected(a, &seqs, &.{
+        .{ .slot = 0, .base = 0, .end = 2048, .start = 1, .absorb = false, .ids = &.{24} },
+    }, &private_slots);
+    try std.testing.expectEqual(@as(usize, 1), b.r);
+    try std.testing.expectEqual(@as(i64, 24), b.ids[0]);
+    try std.testing.expect(std.mem.allEqual(i64, b.ids[1..5], 0));
+    try std.testing.expect(std.mem.allEqual(i64, b.slots[1..5], -1));
+    try std.testing.expectEqual(@as(usize, 0), b.wins[1].seq.len);
+    try std.testing.expectEqualSlices(i32, &.{ 23, 24 }, b.wins[0].seq);
+}
+
+
+test "secure extent malformed mixed round cleans only initialized windows" {
+    const a = std.testing.allocator;
+    var seqs: [max_streams]std.ArrayList(i32) = @splat(.empty);
+    defer for (&seqs) |*s| s.deinit(a);
+    var private_slots: [max_streams]bool = @splat(false);
+    private_slots[1] = true;
+    var b: Built = .{};
+    try std.testing.expectError(error.BadRound, b.buildProtected(a, &seqs, &.{
+        .{ .slot = 1, .base = 2048, .end = 4096, .start = 0, .absorb = true, .ids = &.{91} },
+        .{ .slot = max_streams, .base = 0, .end = 2048, .start = 0, .absorb = false, .ids = &.{23} },
+    }, &private_slots));
+    try std.testing.expectEqual(@as(usize, 1), b.n);
+    b.eraseSlot(1);
+    try std.testing.expectEqual(@as(i64, 0), b.ids[0]);
+    try std.testing.expectEqual(@as(usize, 0), b.wins[0].seq.len);
 }

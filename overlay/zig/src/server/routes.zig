@@ -16,6 +16,18 @@ const Conn = http_conn.Conn;
 const Allocator = std.mem.Allocator;
 
 pub fn dispatch(srv: *Server, conn: *Conn, a: Allocator) void {
+    if (srv.config.secure_request) {
+        const secure_path = auth.routePath(conn.path);
+        if (std.mem.eql(u8, conn.method, "GET") and std.mem.eql(u8, secure_path, "/v1/models"))
+            return status.models(srv, conn, a) catch {};
+        if (std.mem.eql(u8, conn.method, "POST") and std.mem.eql(u8, secure_path, "/v1/chat/completions"))
+            return openai.post(srv, conn, a, true);
+        if (std.mem.eql(u8, conn.method, "POST") and std.mem.eql(u8, secure_path, "/api/v1/secure/forget"))
+            return @import("secure_forget.zig").post(srv, conn);
+        conn.close = true;
+        conn.sendJson(404, "{\"error\":{\"message\":\"route unavailable\"}}");
+        return;
+    }
     const m = conn.method;
     // a GET or DELETE that carries a body leaves it in the socket for the next request on a kept connection
     if (std.mem.eql(u8, m, "GET")) {

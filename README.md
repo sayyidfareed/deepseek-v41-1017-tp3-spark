@@ -1,10 +1,26 @@
 # DeepSeek V4.1 Flash 1017 · 3× DGX Spark
 
-DeepSeek 1017 on three 128 GB NVIDIA GB10 systems, using **Mia EAQ v1 EXL3 2.9 bpw** weights and a **TensorFold TP3** runtime. Combines Mia, LakyFx and BertholomusAI work without requantizing the weights.
+DeepSeek 1017 on three 128 GB NVIDIA GB10 systems, using **Mia EAQ v1 EXL3 2.9 bpw** weights and a **TensorFold TP3** runtime. Combines Mia, LakyFx and BertholomusAI work without requantizing the weights. An optional [matching Keys attention overlay](docs/REPRODUCING.md#optional-abliterated-attention-overlay) is supported.
 
 **12 request slots · 6.4M shared KV pool · 65,536 max output tokens**
 
-## Benchmarks
+## Latest updates
+
+- In-process JPEG/WebP decoding avoids child-process failures under hardened serving.
+- Image requests can enter between bounded text-prefill chunks without sharing an active image buffer. A reproduced wait fell from **42.9 to 1.8 seconds**.
+- Scoped RAM-cache and mixed secure-serving engine code is included. The public launcher keeps it disabled; see the [deployment boundary](docs/SECURE_ENGINE.md).
+- Optional attention-only ablation preserves the existing draft tensors and writes separate rank caches.
+
+| Latest synthetic check | Result |
+|---|---:|
+| C4 ordinary decode | **151.7 tok/s aggregate** |
+| C4 ordinary, including initial processing | **144.2 tok/s aggregate** |
+| C4 mixed: three ordinary + one secure, decode | **176.5 tok/s aggregate** |
+| Image joining a cold 131K prefill, before / after | **42.9 / 1.8 seconds** |
+
+These Nov 14 checks used the optional Keys overlay and one wave per C4 arm. Before the image repair, the ordinary arm measured 172.8 decode / 162.8 end-to-end tok/s; the improvement in image wait came with a throughput tradeoff. Mixed results do not prove secure requests improve speed. [Results and limits](benchmarks/README.md#november-14-image-and-cache-update).
+
+## Earlier benchmark reference
 
 | Test | Result |
 |---|---:|
@@ -19,7 +35,7 @@ DeepSeek 1017 on three 128 GB NVIDIA GB10 systems, using **Mia EAQ v1 EXL3 2.9 b
 | HumanEval | **95.1% · 156/164** |
 | HumanEvalPlus-Mini | **89.6% · 147/164** |
 
-Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; all results above predate the current scheduling fixes below. They are not a matched scaling comparison or a guarantee for long contexts. [Protocol and results →](benchmarks/README.md)
+Speed tests use short synthetic prompts, thinking off and a 384-token output cap. Concurrent throughput is the total across requests. C12 and coding results predate the Nov 9 refresh; all results in this earlier table predate the latest scheduling, secure-cache and ablation updates. They are not a matched scaling comparison or a guarantee for long contexts. [Protocol and results →](benchmarks/README.md)
 
 ## Streaming and cache improvements
 
@@ -53,7 +69,7 @@ This is a **source recipe**, not a ready-to-run image or one-command installer. 
 - Streaming, tools, image input, reasoning controls and disk-backed prompt/KV caching.
 - The 6.4M pool is shared; it is not a per-request context limit. Twelve long histories may not all fit concurrently. KV sharding is off.
 - Intermittent slowdowns and malformed reasoning-tag leaks remain unresolved. Object-union JSON schemas return HTTP 422.
-- Disk caching retains conversation-derived state; this recipe is not suitable for no-retention chats.
+- Ordinary disk caching retains conversation-derived state. Secure engine primitives are included, but this public package is **not a qualified no-retention deployment**.
 
 [Known limitations →](docs/KNOWN_LIMITATIONS.md)
 

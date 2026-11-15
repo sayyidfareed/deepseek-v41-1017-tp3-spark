@@ -105,7 +105,24 @@ pub const Aio = struct {
         return false;
     }
 
+    /// Called only after the model joined every Engram reader at a round boundary.
+    /// Do not erase a ring still owned by a submitted read.
+    pub fn eraseIdle(a: *Aio) !void {
+        a.mutex.lockUncancelable(a.io);
+        defer a.mutex.unlock(a.io);
+        if (a.batches.count() != 0 or a.live.items.len != 0) return error.EngramReadsPending;
+        std.crypto.secureZero(u8, a.ring);
+        std.crypto.secureZero(u8, std.mem.sliceAsBytes(a.live.allocatedSlice()));
+        // The removed entries can still contain old request offsets and pointers.
+        var zero: @import("lanes").ZeroFree = .{ .parent = a.gpa };
+        a.batches.deinit(zero.allocator());
+        a.batches = .empty;
+    }
+
     fn freeBatch(a: *Aio, b: Batch) void {
+        std.crypto.secureZero(u8, std.mem.sliceAsBytes(b.dst));
+        std.crypto.secureZero(usize, b.skew);
+        std.crypto.secureZero(usize, b.bytes);
         a.gpa.free(b.dst);
         a.gpa.free(b.skew);
         a.gpa.free(b.bytes);
@@ -114,6 +131,7 @@ pub const Aio = struct {
     /// Whatever has completed (no wait): rows copied out, batches counted down. Holds `mutex`.
     fn reap(a: *Aio) void {
         var ev: [256]IoEvent = undefined;
+        defer std.crypto.secureZero(u8, std.mem.asBytes(&ev));
         var zero: linux.timespec = .{ .sec = 0, .nsec = 0 };
         while (true) {
             const r = ioGetevents(a.ctx, 0, ev.len, &ev, &zero);
@@ -168,9 +186,9 @@ pub const Aio = struct {
         const bytes = try a.gpa.alloc(usize, reads);
         errdefer a.gpa.free(bytes);
         const cbs = try a.gpa.alloc(Iocb, reads);
-        defer a.gpa.free(cbs);
+        defer { std.crypto.secureZero(u8, std.mem.sliceAsBytes(cbs)); a.gpa.free(cbs); }
         const ptrs = try a.gpa.alloc(*Iocb, reads);
-        defer a.gpa.free(ptrs);
+        defer { std.crypto.secureZero(u8, std.mem.sliceAsBytes(ptrs)); a.gpa.free(ptrs); }
         const id = a.next_id;
         var b: Batch = .{ .first = a.head, .n = reads, .left = reads, .touch = out_w == null, .dst = dst, .skew = skew, .bytes = bytes };
         for (0..reads) |j| {
@@ -420,4 +438,17 @@ test "an allocation failure while submitting commits nothing and leaks nothing" 
             }
         }
     }
+}
+
+test "private erasure of Engram AIO scratch refuses outstanding ownership" {
+    var ring: [slot]u8 align(block) = @splat(0xa5);
+    var a: Aio = .{ .gpa = std.testing.allocator, .io = std.testing.io, .ring = &ring, .slots = 1 };
+    defer a.live.deinit(a.gpa);
+    try a.live.append(a.gpa, .{ 17, 3 });
+    try std.testing.expectError(error.EngramReadsPending, a.eraseIdle());
+    try std.testing.expectEqual(@as(u8, 0xa5), ring[0]);
+    a.live.clearRetainingCapacity();
+    try a.eraseIdle();
+    for (ring) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    for (std.mem.sliceAsBytes(a.live.allocatedSlice())) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
 }

@@ -9,6 +9,7 @@ This recipe integrates the following upstream work. Attribution does not imply e
 | [Albert Lee / BertholomusAI](https://github.com/bertholomus/TensorFold) | DeepSeek V4.1 native model implementation, TP execution, vision, Engram, draft support, input tools and kernel kit. Base engine pinned in `provenance.json`. |
 | [MiaAI-Lab](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-1017-2x-DGX-Sparks) | 1017 EAQ v1 2.9-bpw quantization, TP2 recipe and cache/scheduling/API corrections carried into TP3. Quantized weights remain separately distributed by Mia. |
 | [LakyFx](https://github.com/LakyFx/deepseek-v41-flash-exl3-tp3-tp4-spark) | Three-rank geometry, physical padding/logical-vocabulary handling, NCCL integration, smart graphs, adaptive speculation, prefill and mid-batch throughput donor code at the pinned revision. We use Mia's 1017 weights, not the older donor weight export. |
+| [drowzeys / Keys](https://huggingface.co/drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated) | Optional matching Mia 2.9-bpw attention overlay. This repository supplies a TP3 slice applicator, not the overlay weights; upstream access and license terms apply. |
 | [Turboderp / ExLlamaV3](https://github.com/turboderp-org/exllamav3) | EXL3 format and decoding/kernel lineage. MIT notices retained. |
 | [Robert Wojciechowski / wojo](https://github.com/wojo) and [BadAd84](https://github.com/BadAd84) | Disk-spill/cache design and fixes credited by Mia, including block-tier design and CPU validation. |
 | [eleata](https://github.com/eleata) | Mia's piecewise-prefill engine rebase and associated integration. |
@@ -21,9 +22,9 @@ This recipe integrates the following upstream work. Attribution does not imply e
 
 ## This integration
 
-Our contribution is combining Mia's exact 1017 EAQ pack with the three-rank donor runtime, lossless whole-block rank export, conflict resolution preserving TP3 behavior, selected TP2 correctness updates, local grammar/reopened-thinking fixes, Engram prefix reuse and bounded read-ahead, cache-restore polling, bounded text/image prefill scheduling with decode service and regression coverage, deployment configuration and bounded qualification. The public repository is maintained by [sayyidfareed](https://github.com/sayyidfareed).
+Our contribution is combining Mia's exact 1017 EAQ pack with the three-rank donor runtime, lossless whole-block rank export, conflict resolution preserving TP3 behavior, selected TP2 correctness updates, local grammar/reopened-thinking fixes, Engram prefix reuse and bounded read-ahead, cache-restore polling, bounded text/image prefill scheduling with decode service and regression coverage, in-process Pillow image decoding, image-admission repair, mixed secure-serving and scoped RAM-cache engine primitives, attention-only overlay preparation, deployment configuration and bounded qualification. The public repository is maintained by [sayyidfareed](https://github.com/sayyidfareed).
 
-See `provenance.json` for pinned repositories and the base/deployed/export SHA256 of each changed engine file. Exported source adds modification notices; those comments are the only intended difference from the captured deployed source. JSON fixtures remain byte-identical where no comment is possible.
+See `provenance.json` for pinned repositories and the base/deployed/export SHA256 of each changed engine file. Exported source adds modification notices; those comments, explicitly recorded synthetic network-test address substitutions and trailing-whitespace normalization are the only intended engine-source differences from the captured deployed source. Host-specific runtime controls and credentials are not exported. JSON fixtures remain byte-identical where no comment is possible.
 
 ## Original notices, retained in full
 

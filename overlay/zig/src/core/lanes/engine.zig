@@ -33,6 +33,8 @@ pub const Engine = struct {
     clock: be.Clock,
     log: ?*ev.Log = null,
     learner: ?*adaptive.Controller = null,
+    private_learner: ?*adaptive.Controller = null,
+    private_learning_ready: bool = false,
     rule: depth.Rule,
     live: std.ArrayList(*Stream) = .empty, // admitted streams in admission order (Python `_live`)
     drafted: u64 = 0,
@@ -41,6 +43,7 @@ pub const Engine = struct {
     alone: bool = true, // this step has one live stream: its copies may take their ramp
     steps: u64 = 0,
     arena: std.heap.ArenaAllocator, // a round's temporaries
+    private_arena: @import("zero_free.zig").ZeroFree,
     unread: std.ArrayList(Unread) = .empty, // queued draws the log reads at the step's end
     bounded_admission: bool = false,
     filling: ?*Stream = null, // a stream whose prompt pass runs in pieces between the others' rounds (not live yet)
@@ -57,6 +60,7 @@ pub const Engine = struct {
             .backend = backend,
             .clock = clock,
             .arena = std.heap.ArenaAllocator.init(gpa),
+            .private_arena = .{ .parent = gpa },
             .rule = .{
                 .gpa = gpa,
                 .k = cfg.k,
@@ -73,6 +77,8 @@ pub const Engine = struct {
     }
 
     pub fn deinit(e: *Engine) void {
+        e.clearPrivateLearning();
+        if (e.private_learner) |learner| e.gpa.destroy(learner);
         e.live.deinit(e.gpa);
         e.unread.deinit(e.gpa);
         e.rule.deinit();
@@ -88,6 +94,48 @@ pub const Engine = struct {
             e.learner = learner;
         }
         return e.learner;
+    }
+
+    // Adapt during active private requests without teaching ordinary history.
+    // Every private exit discards this whole temporary view, including when
+    // another private request remains active. Its next round starts afresh.
+    fn privateLearning(e: *Engine, private: bool) !?*adaptive.Controller {
+        if (!private or !e.cfg.adaptive_learning) return null;
+        const ordinary = (try e.learningController()).?;
+        if (e.private_learner == null) e.private_learner = try e.gpa.create(adaptive.Controller);
+        const temporary = e.private_learner.?;
+        if (!e.private_learning_ready) {
+            temporary.* = ordinary.*;
+            e.private_learning_ready = true;
+        }
+        e.learner = temporary;
+        return ordinary;
+    }
+
+    fn finishPrivateLearning(e: *Engine, ordinary: ?*adaptive.Controller) void {
+        if (ordinary) |saved| {
+            e.learner = saved;
+        }
+    }
+
+    fn clearPrivateLearning(e: *Engine) void {
+        if (e.private_learner) |learner| std.crypto.secureZero(u8, std.mem.asBytes(learner));
+        e.private_learning_ready = false;
+    }
+
+    fn protectScratch(e: *Engine) void {
+        // Engine is at its stable address before serving. Keep this erasing
+        // parent after the first private operation so replaced arena blocks
+        // cannot leave bytes behind; ordinary retained-capacity reuse is intact.
+        e.arena.child_allocator = e.private_arena.allocator();
+    }
+
+    /// Called by the host after a private operation has returned, before its
+    /// completion notification. No round may still hold pointers into this arena.
+    pub fn clearPrivateScratch(e: *Engine) void {
+        e.clearPrivateLearning();
+        e.protectScratch();
+        _ = e.arena.reset(.free_all);
     }
 
     /// Streams holding or about to hold a row (paused ones included).
@@ -108,6 +156,10 @@ pub const Engine = struct {
     /// other streams decode and the backend runs passes in pieces, only the first piece runs here: the stream is then
     /// `filling` and fillStep runs the rest between rounds.
     pub fn addStream(e: *Engine, s: *Stream) !void {
+        if (s.secure_request) {
+            if (e.log != null) return error.SecureTracingEnabled;
+            e.protectScratch();
+        }
         _ = e.arena.reset(.retain_capacity);
         if (s.structure != null and !structure.served(e.backend, e.cfg)) return error.StructureUnsupported;
         try trail.event(e, &.{ f("ev", str("add")), f("stream", str(s.id)) });
@@ -141,6 +193,10 @@ pub const Engine = struct {
     /// One bounded prompt visit. The host owns the unfinished stream list; the same
     /// started path preserves grammar, sampling and forced-tool first-token behavior.
     pub fn fillStream(e: *Engine, s: *Stream, first_visit: bool) !bool {
+        if (s.secure_request) {
+            if (e.log != null) return error.SecureTracingEnabled;
+            e.protectScratch();
+        }
         _ = e.arena.reset(.retain_capacity);
         if (first_visit) {
             if (s.structure != null and !structure.served(e.backend, e.cfg)) return error.StructureUnsupported;
@@ -176,6 +232,7 @@ pub const Engine = struct {
     /// its prompt pass ended and it joined the rounds. On an error the stream is no longer filling.
     pub fn fillStep(e: *Engine) !bool {
         const s = e.filling orelse return false;
+        if (s.secure_request) e.protectScratch();
         if (e.activeCount() > 0 and e.rounds_since < e.fill_rounds) return false;
         _ = e.arena.reset(.retain_capacity);
         e.rounds_since = 0;
@@ -191,6 +248,7 @@ pub const Engine = struct {
 
     /// A prompt pass ended: the first token, the first drafts, and the rounds from the next one.
     fn started(e: *Engine, s: *Stream) !void {
+        if (s.secure_request) e.protectScratch();
         if (s.isCancelled()) { // cancelled in its last chunk: no first token
             e.backend.release(s);
             return error.Cancelled;
@@ -254,6 +312,7 @@ pub const Engine = struct {
 
     /// One round for every live stream (Python `_family_step`).
     pub fn step(e: *Engine) !void {
+        for (e.live.items) |s| if (s.secure_request) { e.protectScratch(); break; };
         _ = e.arena.reset(.retain_capacity);
         const a = e.arena.allocator();
         try trail.event(e, &.{ f("ev", str("step")), f("index", int(e.steps)) });
@@ -342,6 +401,9 @@ pub const Engine = struct {
 
     /// One stream's round: verify pending and drafted tokens together, keep drafts to the first mismatch.
     fn familyRound(e: *Engine, s: *Stream, copied: ?[]const u32) !Result {
+        const ordinary_learner = try e.privateLearning(s.secure_request);
+        defer e.finishPrivateLearning(ordinary_learner);
+        errdefer if (s.secure_request) e.clearPrivateLearning();
         e.clock.start();
         if (e.learner) |learner| learner.frame = .{};
         const priced = s.priced;
@@ -394,7 +456,7 @@ pub const Engine = struct {
         if (plan.kind == .head) {
             const ms = e.clock.elapsedMs(.overhead);
             try trail.event(e, &.{ f("ev", str("overhead")), f("streams", int(1)), f("rows", int(rows)), f("ms", ev.bits(ms)) });
-            if (e.backend.timingClean()) try e.rule.observeOverhead(1, rows, ms);
+            if (!s.secure_request and e.backend.timingClean()) try e.rule.observeOverhead(1, rows, ms);
         }
         if (e.learner) |learner| {
             if (!e.backend.timingClean()) learner.frame.warm = false;
@@ -405,6 +467,11 @@ pub const Engine = struct {
 
     /// The stream windows of a shared round in one forward, then each verified, committed and drafted on its own.
     fn roundStreams(e: *Engine, entries: []*Stream) !void {
+        var private = false;
+        for (entries) |s| private = private or s.secure_request;
+        const ordinary_learner = try e.privateLearning(private);
+        defer e.finishPrivateLearning(ordinary_learner);
+        errdefer if (private) e.clearPrivateLearning();
         e.clock.start();
         if (e.learner) |learner| learner.frame = .{};
         const a = e.arena.allocator();
@@ -459,7 +526,7 @@ pub const Engine = struct {
         try e.backend.keep(windows, paths);
         const ms = e.clock.elapsedMs(.overhead);
         try trail.event(e, &.{ f("ev", str("overhead")), f("streams", int(plans.len)), f("rows", int(total)), f("ms", ev.bits(ms)) });
-        if (e.backend.timingClean()) try e.rule.observeOverhead(@intCast(plans.len), total, ms);
+        if (!private and e.backend.timingClean()) try e.rule.observeOverhead(@intCast(plans.len), total, ms);
         if (e.learner) |learner| {
             var emitted: usize = 0;
             for (outcomes) |o| emitted += o.got.len;
@@ -492,8 +559,10 @@ pub const Engine = struct {
                     if (!redrawn and accept.isChain(parents) and (p.kind == .head or p.kind == .copy))
                         learner.accepted(@intFromPtr(s), rows - 1, kept);
                 }
-                e.drafted += rows - 1;
-                e.accepted += kept;
+                if (!s.secure_request) {
+                    e.drafted += rows - 1;
+                    e.accepted += kept;
+                }
                 s.drafted += rows - 1;
                 s.accepted += kept;
                 if (p.kind == .copy) {
@@ -536,7 +605,7 @@ pub const Engine = struct {
             committed.shrinkRetainingCapacity(hit.at);
             try committed.append(a, hit.fix[0]);
             s.force.clearRetainingCapacity();
-            if (hit.fix.len > 1) try s.force.appendSlice(e.gpa, hit.fix[1..]);
+            if (hit.fix.len > 1) try s.appendForced(e.gpa, hit.fix[1..]);
         } else if (loop_at < budget_at and loop_cut != null) {
             cut = loop_cut;
             path = path[0 .. loop_cut.? + 1];
@@ -732,7 +801,7 @@ pub const Engine = struct {
         const hit = (try g.cut(e.arena.allocator(), &.{token})) orelse return token;
         if (hit.at != 0 or hit.fix.len == 0) return token;
         s.force.clearRetainingCapacity();
-        if (hit.fix.len > 1) try s.force.appendSlice(e.gpa, hit.fix[1..]);
+        if (hit.fix.len > 1) try s.appendForced(e.gpa, hit.fix[1..]);
         return hit.fix[0];
     }
 
@@ -751,7 +820,93 @@ pub const Engine = struct {
     }
 
     fn release(e: *Engine, s: *Stream) void {
+        if (s.secure_request) e.clearPrivateLearning();
         s.dropRoundState(e.gpa);
         e.backend.release(s);
     }
 };
+
+
+test "private learning uses ordinary estimates without retaining mixed observations" {
+    const gpa = std.testing.allocator;
+    var cfg = try Config.init(gpa, .{ .adaptive_learning = true }, 8, 7);
+    defer cfg.deinit(gpa);
+    var target: @import("fake.zig").Fake = .{ .gpa = gpa };
+    defer target.deinit();
+    var clock: @import("fake.zig").FixedClock = .{};
+    var e = Engine.init(gpa, &cfg, target.backend(), clock.clock());
+    defer e.deinit();
+    e.protectScratch();
+    const ordinary = (try e.learningController()).?;
+    ordinary.rounds = 42;
+    ordinary.acceptance_updates = 17;
+    const saved = try e.privateLearning(true);
+    const private = e.learner.?;
+    try std.testing.expect(private != ordinary);
+    try std.testing.expectEqual(@as(u64, 42), private.rounds);
+    private.rounds += 3;
+    private.acceptance_updates += 9;
+    e.finishPrivateLearning(saved);
+    try std.testing.expect(e.learner.? == ordinary);
+    try std.testing.expectEqual(@as(u64, 42), ordinary.rounds);
+    try std.testing.expectEqual(@as(u64, 17), ordinary.acceptance_updates);
+    e.clearPrivateScratch();
+    try std.testing.expect(std.mem.allEqual(u8, std.mem.asBytes(private), 0));
+    try std.testing.expectEqual(@as(?*adaptive.Controller, null), try e.privateLearning(false));
+}
+
+test "private learning carries estimates across active rounds and resets at request end" {
+    const gpa = std.testing.allocator;
+    var cfg = try Config.init(gpa, .{ .adaptive_learning = true }, 8, 7);
+    defer cfg.deinit(gpa);
+    var target: @import("fake.zig").Fake = .{ .gpa = gpa };
+    defer target.deinit();
+    var clock: @import("fake.zig").FixedClock = .{};
+    var e = Engine.init(gpa, &cfg, target.backend(), clock.clock());
+    defer e.deinit();
+    e.protectScratch();
+    const ordinary = (try e.learningController()).?;
+    ordinary.rounds = 42;
+    const first = try e.privateLearning(true);
+    e.learner.?.rounds += 3;
+    e.finishPrivateLearning(first);
+    _ = e.arena.reset(.retain_capacity);
+    const second = try e.privateLearning(true);
+    const rounds = e.learner.?.rounds;
+    e.finishPrivateLearning(second);
+    try std.testing.expectEqual(@as(u64, 45), rounds);
+    try std.testing.expectEqual(@as(u64, 42), ordinary.rounds);
+    e.clearPrivateScratch();
+    const third = try e.privateLearning(true);
+    try std.testing.expectEqual(@as(u64, 42), e.learner.?.rounds);
+    e.finishPrivateLearning(third);
+}
+
+test "private learning erases on every release while ordinary release preserves active estimates" {
+    const gpa = std.testing.allocator;
+    var cfg = try Config.init(gpa, .{ .adaptive_learning = true }, 8, 7);
+    defer cfg.deinit(gpa);
+    var target: @import("fake.zig").Fake = .{ .gpa = gpa };
+    defer target.deinit();
+    var clock: @import("fake.zig").FixedClock = .{};
+    var e = Engine.init(gpa, &cfg, target.backend(), clock.clock());
+    defer e.deinit();
+    var regular = try Stream.init(gpa, .{ .id = "ordinary", .prompt = &.{1}, .max_new = 4 });
+    defer regular.deinit(gpa);
+    var private = try Stream.init(gpa, .{ .secure_request = true, .id = "private", .prompt = &.{2}, .max_new = 4 });
+    defer private.deinit(gpa);
+    const ordinary = (try e.learningController()).?;
+    ordinary.rounds = 42;
+    for ([_]@import("stream.zig").Reason{ .stop, .length, .cancelled, .@"error" }) |reason| {
+        const saved = try e.privateLearning(true);
+        e.learner.?.rounds = 99;
+        e.finishPrivateLearning(saved);
+        e.release(&regular);
+        try std.testing.expectEqual(@as(u64, 99), e.private_learner.?.rounds);
+        private.reason = reason;
+        e.release(&private);
+        try std.testing.expect(!e.private_learning_ready);
+        try std.testing.expect(std.mem.allEqual(u8, std.mem.asBytes(e.private_learner.?), 0));
+        try std.testing.expectEqual(@as(u64, 42), ordinary.rounds);
+    }
+}

@@ -6,6 +6,7 @@ const api = @import("engine_api");
 const lanes = @import("lanes");
 const nemotron = @import("nemotron");
 const dsv41 = @import("dsv41");
+const SecureRouter = @import("secure_router.zig").Router;
 const Allocator = std.mem.Allocator;
 const budget = @import("cuda_memory.zig");
 const Pool = budget.Pool;
@@ -159,6 +160,7 @@ const Host = struct {
     clock: lanes.backend.WallClock,
     core: lanes.Engine,
     host: api.LaneHost,
+    secure: ?SecureRouter = null,
     startup: []u8 = &.{},
     lone: ?LoneRun = null, // the family's driver for a lone drafted stream, called with `family`
     cache: ?api.prompt_cache.Store = null, // kept prompt states, when the family keeps them
@@ -172,6 +174,7 @@ const Host = struct {
 
     fn close(p: *anyopaque) void {
         const h: *Host = @ptrCast(@alignCast(p));
+        if (h.secure) |*router| router.close() catch std.process.exit(70);
         h.host.stop();
         h.core.deinit();
         h.cfg.deinit(h.gpa);
@@ -239,96 +242,9 @@ const Host = struct {
         return x.lone.?(x.family, s, hooks.ctx, hooks.committed, hooks.yield);
     }
 
-    /// The family's backend, each call made with the context current on the calling thread.
+    /// Bind the CUDA context before forwarding to the family's backend.
     fn backend(h: *Host) lanes.backend.Backend {
-        const v = h.inner.vtable;
-        h.vtable = .{
-            .prefill = struct {
-                fn f(p: *anyopaque, s: *lanes.Stream) anyerror!void {
-                    const x = bind(p);
-                    return x.inner.vtable.prefill(x.inner.ptr, s);
-                }
-            }.f,
-            .prefill_part = if (v.prefill_part != null) struct {
-                fn f(p: *anyopaque, s: *lanes.Stream, chunks: usize) anyerror!bool {
-                    const x = bind(p);
-                    return x.inner.vtable.prefill_part.?(x.inner.ptr, s, chunks);
-                }
-            }.f else null,
-            .first = struct {
-                fn f(p: *anyopaque, s: *lanes.Stream, position: u64) anyerror!u64 {
-                    const x = bind(p);
-                    return x.inner.vtable.first(x.inner.ptr, s, position);
-                }
-            }.f,
-            .queue = struct {
-                fn f(p: *anyopaque, s: *lanes.Stream, feed: lanes.backend.Feed, position: u64) anyerror!u64 {
-                    const x = bind(p);
-                    return x.inner.vtable.queue(x.inner.ptr, s, feed, position);
-                }
-            }.f,
-            .read = struct {
-                fn f(p: *anyopaque, handle: u64) anyerror!u32 {
-                    const x = bind(p);
-                    return x.inner.vtable.read(x.inner.ptr, handle);
-                }
-            }.f,
-            .verify = struct {
-                fn f(p: *anyopaque, w: []const lanes.backend.Window, out: []lanes.backend.Verified) anyerror!void {
-                    const x = bind(p);
-                    return x.inner.vtable.verify(x.inner.ptr, w, out);
-                }
-            }.f,
-            .keep = struct {
-                fn f(p: *anyopaque, w: []const lanes.backend.Window, paths: []const []const u32) anyerror!void {
-                    const x = bind(p);
-                    return x.inner.vtable.keep(x.inner.ptr, w, paths);
-                }
-            }.f,
-            .draft = struct {
-                fn f(p: *anyopaque, r: []const lanes.backend.DraftRequest) anyerror!void {
-                    const x = bind(p);
-                    return x.inner.vtable.draft(x.inner.ptr, r);
-                }
-            }.f,
-            .unspeculate = if (v.unspeculate != null) struct {
-                fn f(p: *anyopaque, s: *lanes.Stream) anyerror!void {
-                    const x = bind(p);
-                    return x.inner.vtable.unspeculate.?(x.inner.ptr, s);
-                }
-            }.f else null,
-            .probabilities = if (v.probabilities != null) struct {
-                fn f(p: *anyopaque, s: *lanes.Stream, out: []f64) anyerror!bool {
-                    const x = bind(p);
-                    return x.inner.vtable.probabilities.?(x.inner.ptr, s, out);
-                }
-            }.f else null,
-            .tree = if (v.tree != null) struct {
-                fn f(p: *anyopaque, s: *lanes.Stream, gpa: Allocator) anyerror!?lanes.stream.Held {
-                    const x = bind(p);
-                    return x.inner.vtable.tree.?(x.inner.ptr, s, gpa);
-                }
-            }.f else null,
-            .alternatives = if (v.alternatives != null) struct {
-                fn f(p: *anyopaque, s: *lanes.Stream, out: []lanes.backend.Alternative) anyerror!usize {
-                    const x = bind(p);
-                    return x.inner.vtable.alternatives.?(x.inner.ptr, s, out);
-                }
-            }.f else null,
-            .redraw = if (v.redraw != null) struct {
-                fn f(p: *anyopaque, r: lanes.backend.Redraw, allow: lanes.backend.Allow) anyerror!?u32 {
-                    const x = bind(p);
-                    return x.inner.vtable.redraw.?(x.inner.ptr, r, allow);
-                }
-            }.f else null,
-            .release = struct {
-                fn f(p: *anyopaque, s: *lanes.Stream) void {
-                    const x = bind(p);
-                    x.inner.vtable.release(x.inner.ptr, s);
-                }
-            }.f,
-        };
-        return .{ .ptr = h, .vtable = &h.vtable };
+        return @import("cuda_backend.zig").backend(Host, bind, h);
     }
 };
 
@@ -347,6 +263,11 @@ pub fn open(a: Allocator, gpa: Allocator, io: std.Io, o: api.Open, problem: *[]c
 }
 
 fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.Open, problem: *[]const u8) !?api.Opened {
+    const shared_secure = getenv("TF_SECURE_HOST") != null;
+    if (shared_secure) {
+        if (comptime F != dsv41.native) return error.SecureUnsupportedFamily;
+        _ = try dsv41.secure_policy.Guard.dormant();
+    }
     const native = modelContext(a, io, o.dir);
     const window = contextWindow(o.context, native, F.default_context) catch |e| {
         problem.* = switch (e) {
@@ -479,8 +400,9 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
     // the family cuts its own prompt grid from position 0, as `tensorfold run` does: prefill_step 0
     const vision: ?api.Vision = if (@hasField(@TypeOf(loaded), "vision")) loaded.vision else null;
     try h.serve(io, loaded.facts, loaded.rows, .{ .lanes = streams, .context_window = @intCast(served), .startup = h.startup, .efforts = familyEfforts(F), .vision = vision, .call_gates = true, .prompt_cache = h.cache != null }, .{ .ctx = loaded.ctx, .text = F.explain });
+    if (shared_secure) h.secure = .{ .ordinary = &h.host, .ctx = &g.ctx, .family = loaded.ctx };
     opened = true;
-    return .{ .engine = h.host.engine(), .close = Host.close, .ctx = h };
+    return .{ .engine = if (h.secure) |*router| router.engine() else h.host.engine(), .close = Host.close, .ctx = h };
 }
 
 /// The broken-pair policy's exit (robustness): the lane host has failed every request and stopped the collectives;
@@ -629,4 +551,52 @@ test "a cancel during a long prompt stops it, and the next request's reply is un
         try history.append(gpa, t);
     }
     try std.testing.expectEqual(@as(usize, 40), restored.tokens.items.len);
+}
+
+
+test "native CUDA wrapper forwards secure cache forget and expiry" {
+    const gpa = std.testing.allocator;
+    var target: lanes.fake.Fake = .{ .gpa = gpa };
+    defer target.deinit();
+    const Seen = struct {
+        polled: bool = false,
+        scope: ?[32]u8 = null,
+        fail: bool = false,
+        fn poll(p: *anyopaque) !void {
+            const f: *lanes.fake.Fake = @ptrCast(@alignCast(p));
+            const s: *@This() = @ptrCast(@alignCast(f.prefill_hook_ctx.?));
+            s.polled = true;
+            if (s.fail) return error.SyntheticCacheFailure;
+        }
+        fn forget(p: *anyopaque, scope: ?*const [32]u8) !usize {
+            const f: *lanes.fake.Fake = @ptrCast(@alignCast(p));
+            const s: *@This() = @ptrCast(@alignCast(f.prefill_hook_ctx.?));
+            s.scope = if (scope) |v| v.* else null;
+            if (s.fail) return error.SyntheticCacheFailure;
+            return if (scope == null) 2 else 1;
+        }
+    };
+    var seen: Seen = .{};
+    target.prefill_hook_ctx = &seen;
+    var table = target.backend().vtable.*;
+    table.private_cache_poll = Seen.poll;
+    table.private_cache_forget = Seen.forget;
+    var host: Host = undefined;
+    host.gpu = null;
+    host.inner = .{ .ptr = &target, .vtable = &table };
+    const wrapped = host.backend();
+    const scope: [32]u8 = @splat(23);
+    try std.testing.expectEqual(@as(usize, 1), try wrapped.privateForget(&scope));
+    try std.testing.expectEqual(scope, seen.scope.?);
+    try std.testing.expectEqual(@as(usize, 2), try wrapped.privateForget(null));
+    try std.testing.expect(seen.scope == null);
+    try wrapped.privateCachePoll();
+    try std.testing.expect(seen.polled);
+    seen.fail = true;
+    try std.testing.expectError(error.SyntheticCacheFailure, wrapped.privateForget(&scope));
+    try std.testing.expectError(error.SyntheticCacheFailure, wrapped.privateCachePoll());
+    host.inner = target.backend();
+    const absent = host.backend();
+    try std.testing.expectEqual(@as(usize, 0), try absent.privateForget(null));
+    try absent.privateCachePoll();
 }

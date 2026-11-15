@@ -1,4 +1,5 @@
 // Modified for the DeepSeek 1017 TP3 integration; upstream copyrights retained. See CREDITS.md and provenance.json.
+// Modified for the DeepSeek 1017 TP3 integration; upstream copyrights retained. See CREDITS.md and provenance.json.
 //! One TP rank of DeepSeek-V4.1-Flash loaded for serving: the weights, kernels, caches and buffers the layer gate sets
 //! up (layer_main.zig), for a pool of draft.max_streams streams (MultiDecoder's slots: each stream's window rings,
 //! positional stores and drafter rings in its slot, its compressed rows in its extent of one shared plane), and the
@@ -408,8 +409,13 @@ pub const Model = struct {
         }
         m.rd = try round.Round.init(&m.eng, &m.arena, a, m.request_cap);
         if (m.kvs != null) try m.rd.useShard(&m.eng, &m.arena, a);
-        m.amax = try m.arena.take(round.max_rows * 4);
-        m.cand = try m.arena.take(round.max_rows * (sampling.max_candidates * 12 + 4));
+        {
+            const previous_scope = m.arena.scratch_scope;
+            m.arena.scratch_scope = true;
+            defer m.arena.scratch_scope = previous_scope;
+            m.amax = try m.arena.take(round.max_rows * 4);
+            m.cand = try m.arena.take(round.max_rows * (sampling.max_candidates * 12 + 4));
+        }
         if (o.graphs) m.graphs = round.Graphs.init(gpa, o.graph_cap);
         if (o.side) try m.rd.useSide(&m.eng);
         if (o.prefetch) try m.rd.usePrefetch(&m.eng);
@@ -990,6 +996,67 @@ pub const Model = struct {
             if (p.kind == .ring and p.slotBytes() != m.eng.ringBytes()) return error.SpillLayoutMismatch;
         }
         return l;
+    }
+
+    /// Erase only the persistent target/drafter state owned by one stream.
+    /// Ownership and spill-reader guards belong to Lanes; shared scratch and host
+    /// state require their own cleanup before a secure completion is acknowledged.
+    pub fn eraseStreamStorage(m: *Model, slot: usize, lo: usize, hi: usize) !void {
+        const erase = @import("secure_extent.zig");
+        const layout = try m.spillLayout();
+        var rings_to_clear: [draft.max_stages]erase.Span = undefined;
+        var n: usize = 0;
+        if (m.dpool) |*pool| {
+            if (slot >= pool.slots or pool.stages > rings_to_clear.len) return error.BadPrivateRange;
+            const rows = std.math.mul(usize, pool.ring, pool.hd) catch return error.BadPrivateRange;
+            const bytes = std.math.mul(usize, rows, 2) catch return error.BadPrivateRange;
+            for (0..pool.stages) |stage| {
+                rings_to_clear[n] = .{ .address = pool.view(stage, slot), .bytes = bytes };
+                n += 1;
+            }
+        }
+        const dev: SpillDev = .{ .m = m };
+        const plan = try erase.Plan.make(dev, &layout, slot, lo, hi, rings_to_clear[0..n]);
+        try plan.apply(dev);
+        try m.stream.synchronize();
+        if (m.dpool) |*pool| pool.absorbed[slot] = 0;
+    }
+
+    /// Called only after the whole mixed round consumed logits and copied drafts.
+    /// Keeps persistent KV, constants, graph allocations and other lanes' held drafts.
+    pub fn eraseSharedRoundScratch(m: *Model) !void {
+        m.resetEngramAhead();
+        try m.arena.beginScratchErase();
+        // These CPU allocations are separate from Arena's device allocations.
+        // Join GPU erasure even when a host guard fails; no caller may resume
+        // inference or acknowledge private completion on either kind of failure.
+        m.eraseSharedHostScratch() catch |err| {
+            try m.arena.finishScratchErase();
+            return err;
+        };
+        try m.arena.finishScratchErase();
+    }
+
+    fn eraseSharedHostScratch(m: *Model) !void {
+        if (m.aio) |x| try x.eraseIdle();
+        if (m.paio) |x| try x.eraseIdle();
+        if (m.paio2) |x| try x.eraseIdle();
+        if (m.eh) |*eh| eh.eraseScratch();
+        m.rd.eraseHostScratch();
+        std.crypto.secureZero(i64, m.host_pos);
+        std.crypto.secureZero(i64, m.ids64);
+        std.crypto.secureZero(f32, m.logits);
+        std.crypto.secureZero(u32, &m.amax_host);
+        std.crypto.secureZero(f32, &m.cand_vals);
+        std.crypto.secureZero(i64, &m.cand_ids);
+        std.crypto.secureZero(i32, &m.cand_flags);
+        if (m.dr) |*dr| {
+            dr.eraseHostScratch();
+            std.crypto.secureZero(u8, std.mem.asBytes(&dr.drafts));
+            std.crypto.secureZero(u8, std.mem.asBytes(&dr.confs));
+            dr.streams = 0;
+            dr.steps = 0;
+        }
     }
 
     /// The pool's extent and slot generations (one counter a chunk of positions), sized once at setup.

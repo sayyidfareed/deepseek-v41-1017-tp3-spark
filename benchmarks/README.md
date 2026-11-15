@@ -1,5 +1,24 @@
 # Benchmark protocol
 
+## November 14 image and cache update
+
+[Machine-readable results](2026-11-14-image-cache.json) contain only selected synthetic aggregates from the retained installed-build checks. No new GPU run was performed for this publication. These checks used Mia EAQ v1 2.9 bpw with the matching Keys attention overlay, twelve slots and a 6.4M shared pool.
+
+| Synthetic check | Before image repair | After image repair |
+|---|---:|---:|
+| Ordinary C4 aggregate decode | 172.84 tok/s | 151.66 tok/s |
+| Ordinary C4 aggregate end-to-end | 162.79 tok/s | 144.16 tok/s |
+| Image arriving during cold 131K text prefill, completion time | 42.93 s | 1.80 s |
+| Cold text completion time in that overlap case | 43.55 s | 44.81 s |
+
+One C4 wave per arm, with four observed overlapping replies and 384 output tokens per request. A separate repaired-build wave with three ordinary requests and one synthetic secure request reached 176.46 aggregate decode / 166.40 end-to-end tok/s. This is not evidence that secure requests increase speed, and it is not a sustained C4 result. The ordinary end-to-end drop was 11.4%; the repair was retained for its image responsiveness. No new C8/C12 or coding-quality result is attributed to this update.
+
+The image joined about one second into the cold text prefill; the before/after cold prompts were 131,098/131,099 tokens. The joining image used 199 prompt tokens and returned the correct short answer. These are analogous synthetic scenarios, not byte-identical cold prompts. Installed PNG/JPEG/WebP checks also passed. The in-process decoder and admission fix address different failures: child-process denial and images waiting behind long text work.
+
+The ordinary and secure controls of the tested deployment are not delivered by the public launcher; see [the secure-engine boundary](../docs/SECURE_ENGINE.md). Historical results below keep their original build and protocol attribution.
+
+## Earlier short-prompt results
+
 | Result file | Build | Workload |
 |---|---|---|
 | [2026-11-09.json](2026-11-09.json) | Nov 9 TP3 refresh | C1: one run per prompt; C4/C8: 20-second windows; GPU ceiling 2,200 MHz |

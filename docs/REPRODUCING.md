@@ -24,10 +24,21 @@ The native key plans must be produced by the reconstructed engine's `zig/src/fam
 
 ## 3. Toolchain, kernels and binaries
 
+### Optional abliterated attention overlay
+
+The stock Mia checkpoint remains the default input. To reproduce the optional ablated variant, obtain the matching Mia 2.9-bpw overlay from [drowzeys/Keys](https://huggingface.co/drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated), subject to its access and license terms. The exact revision, filename and hash are in `provenance.json`. Never substitute the native-FP8 overlay or patch draft/MTP tensors.
+
+`tools/export/patch_rank.py` reads an existing verified TP3 rank cache and writes a separate candidate. It requires the baseline and overlay SHA256 values, verifies the 104 attention source tensors and 78 native slices, preserves every other byte including the F16 draft confidence head, refuses an existing output, and retains a 50 GiB disk reserve. Use `--help` for its required paths and hash arguments; it is a dry run unless `--write` is supplied. Repeat for all three ranks. No download, live-file replacement or service change is performed by the tool.
+
+Keep the stock caches for rollback. Use separate spill/cache namespaces and a graph-profile identity for the changed weights; an old stock-model cache is not compatible merely because its shapes match. Qualify output quality, speculation and speed on the actual overlay. The earlier benchmark table used stock weights; the November 14 table used this variant.
+
+### Runtime dependencies
+
 The deployment used Linux aarch64, Zig 0.17.0, a CUDA-capable build environment, Triton and NCCL. Use the pinned Mia/Bertholomus upstream build instructions and check their container/toolchain requirements; the deployment's local Docker image ID is not a downloadable registry artifact and is intentionally not offered as one.
 
 Required components include:
 
+- CPython 3.12 with `libpython3.12.so.1.0` available to the dynamic loader, plus Pillow with JPEG/WebP codecs. The retained tested image used Pillow 12.3.0. The decoder now initializes Python in process with bytecode writes disabled, preloads image plugins and acquires/releases the GIL per decode; it does not execute a Python child. Supply these dependencies in the runtime image and test PNG/JPEG/WebP after assembly.
 - A complete Bertholomus base kernel kit, plus the TP3 AOT launch matrix and throughput additions. Base kit source: `bertholomus/deepseek-v4.1-tensorfold-tp2-2xgb10`, revision `abe07c7d509a0199cc7fec15263be2aa52ac652f`.
 - The SM121 throughput sources and explicit Triton cases under `tools/kernels/`. `compile_triton.py` compiles cases without allocating GPU tensors. These additions alone are **not** the complete base kit.
 - Embedded fatbins matching the reconstructed source, including the corrected GPU candidate sampler. The accepted deployed sampler SHA256 was `4446b1178e25222d3cdf11ccdea473cf65c223a0d95271b06f38d27e273914bd`; a different compiler may produce different binary hashes and needs its own qualification.
@@ -83,4 +94,4 @@ python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 
 Then, in a controlled ordinary-work window, test all ranks and your gateway: authentication, streaming, required/named/automatic tools and continuation, thinking on/off and low/high/max, supported strict schemas and explicit 422 for unsupported unions, image input, cancellation, output limits and warm/cold cache behavior. Use synthetic input only. Validate concurrent requests against your actual history lengths. Observe after long prefills, not just on a fresh empty server.
 
-Secure/no-retention use is unsupported. No TP2/TP3 cache conversion is provided. Keep rollback assets and cache namespaces separate.
+Secure engine primitives are exported but secure/no-retention deployment of this public package remains unsupported; see [SECURE_ENGINE.md](SECURE_ENGINE.md). No TP2/TP3 cache conversion is provided. Keep rollback assets and cache namespaces separate.

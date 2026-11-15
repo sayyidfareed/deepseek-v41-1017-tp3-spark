@@ -21,8 +21,13 @@ pub const Error = error{ Template, OutOfMemory };
 pub const Text = struct {
     ctx: *anyopaque,
     vtable: *const VTable,
+    /// Set only after all private tokenizer and rendering hooks have been validated.
+    private_scratch: ?Allocator = null,
 
     pub const VTable = struct {
+        render_private: ?*const fn (ctx: *anyopaque, a: Allocator, messages: json.Value, options: RenderOptions, problem: *[]const u8, scratch: Allocator) Error![]u8 = null,
+        encode_private: ?*const fn (ctx: *anyopaque, a: Allocator, text: []const u8, add_special: bool, scratch: Allocator) Error![]u32 = null,
+        decode_private: ?*const fn (ctx: *anyopaque, a: Allocator, ids: []const u32, scratch: Allocator) Allocator.Error![]u8 = null,
         /// Ids of ``text``, special-token text included as its token; ``add_special`` adds what the tokenizer prepends.
         encode: *const fn (ctx: *anyopaque, a: Allocator, text: []const u8, add_special: bool) Error![]u32,
         /// UTF-8 of ``ids`` with special tokens; bytes that end mid-character decode as U+FFFD, as Python's replace does.
@@ -47,10 +52,12 @@ pub const Text = struct {
     };
 
     pub fn encode(t: Text, a: Allocator, text: []const u8, add_special: bool) Error![]u32 {
+        if (t.private_scratch) |scratch| return t.vtable.encode_private.?(t.ctx, a, text, add_special, scratch);
         return t.vtable.encode(t.ctx, a, text, add_special);
     }
 
     pub fn decode(t: Text, a: Allocator, ids: []const u32) Allocator.Error![]u8 {
+        if (t.private_scratch) |scratch| return t.vtable.decode_private.?(t.ctx, a, ids, scratch);
         return t.vtable.decode(t.ctx, a, ids);
     }
 
@@ -71,6 +78,7 @@ pub const Text = struct {
     }
 
     pub fn render(t: Text, a: Allocator, messages: json.Value, options: RenderOptions, problem: *[]const u8) Error![]u8 {
+        if (t.private_scratch) |scratch| return t.vtable.render_private.?(t.ctx, a, messages, options, problem, scratch);
         return t.vtable.render(t.ctx, a, messages, options, problem);
     }
 

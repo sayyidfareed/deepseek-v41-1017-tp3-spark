@@ -277,9 +277,31 @@ pub const Drafter = struct {
     drafts: [max_streams][max_block]i64 = undefined,
     confs: [max_streams][max_block]f32 = undefined,
 
+    // Pageable host copies belong to the model, rather than an unwiped stack
+    // frame. Upload ordering is unchanged; private cleanup runs after the rank
+    // fence, never immediately after an asynchronous upload.
+    host_pos: [max_absorb * 9]i64,
+    host_ring_rows: [max_absorb * 9]i64,
+    host_indices: [6 * max_rows]i64,
+    host_picks: [max_rows * pick_pad]i64,
+    host_output: [max_streams * (max_block + 1)]i64,
+    host_confidence: [max_streams * max_block]f32,
+
+    pub fn eraseHostScratch(dr: *Drafter) void {
+        std.crypto.secureZero(i64, &dr.host_pos);
+        std.crypto.secureZero(i64, &dr.host_ring_rows);
+        std.crypto.secureZero(i64, &dr.host_indices);
+        std.crypto.secureZero(i64, &dr.host_picks);
+        std.crypto.secureZero(i64, &dr.host_output);
+        std.crypto.secureZero(f32, &dr.host_confidence);
+    }
+
     /// Every buffer for passes of up to max_rows rows and absorbs of up to a ring of rows; the Markov loop's cached
     /// bias rows (Markov.fill, at load as served) for rank s.rank of s.world.
     pub fn init(e: *const Engine, a: *prompt.Arena, sp: plan.Split) !Drafter {
+        const previous_scope = a.scratch_scope;
+        a.scratch_scope = true;
+        defer a.scratch_scope = previous_scope;
         const c = e.c;
         const ds = e.w.dspark orelse return error.NoDrafter;
         if (ds.blocks.len > max_stages or c.dspark_block > max_block or c.dspark_block == 0) return error.DrafterTooLarge;
@@ -290,6 +312,7 @@ pub const Drafter = struct {
         const b0 = ds.blocks[0];
         const hl = b0.wq_b.n / hd; // the blocks' heads (TP2's on a 2D node too: TP2 inside the pair)
         var dr: Drafter = undefined;
+        dr.eraseHostScratch();
         dr.ds = ds;
         dr.n = c.dspark_block;
         dr.noise = c.dspark_noise;
@@ -398,6 +421,9 @@ pub const Drafter = struct {
         dr.ao = try a.take(ring * hd * 2);
         dr.apos = try a.take(ring * 8);
         dr.arows = try a.take(ring * 8);
+        for (ds.blocks, 0..) |_, j| try a.keepScratch(dr.gate_f[j]);
+        for ([_]u64{ none, tok, cache, slot, dr.confw }) |constant| try a.keepScratch(constant);
+        try a.scratchValue(dr.xs.members, 0xff);
         return dr;
     }
 
@@ -413,14 +439,14 @@ pub const Drafter = struct {
         const keep = @min(n, pool.ring);
         if (keep > 128) return notPorted(@src()); // main_proj's prompt GEMM (the served lane's replay keeps 128 rows)
         const first = start + n - keep;
-        var pos: [max_absorb * 9]i64 = undefined;
-        var rows: [max_absorb * 9]i64 = undefined;
+        const pos = &dr.host_pos;
+        const rows = &dr.host_ring_rows;
         for (0..keep) |r| {
             pos[r] = @intCast(first + r);
             rows[r] = @intCast((first + r) % pool.ring);
         }
-        try prompt.upload(e, dr.apos, &pos, keep * 8);
-        try prompt.upload(e, dr.arows, &rows, keep * 8);
+        try prompt.upload(e, dr.apos, pos, keep * 8);
+        try prompt.upload(e, dr.arows, rows, keep * 8);
         try dr.mainKeys(e, ch, taps + (n - keep) * dr.taps_w * 2, keep);
         for (dr.ds.blocks, 0..) |lay, j| {
             try tri_norm.kvNormRope(e.t, dr.ak[j], lay.kv_norm, e.plain.cos, e.plain.sin, dr.apos, pool.view(j, slot), pool.ring, dr.arows, e.c.eps, true, e.c.rope_dim, dr.ao, keep, e.c.head_dim);
@@ -432,8 +458,8 @@ pub const Drafter = struct {
     /// ring); the caller sets each slot's `absorbed` (eager: the kept length, known after sampling).
     pub fn absorbMany(dr: *Drafter, e: *const Engine, ch: *const Chunk, pool: *const Pool, items: []const Item) !void {
         var n: usize = 0;
-        var pos: [max_absorb]i64 = undefined;
-        var rows: [max_absorb]i64 = undefined;
+        const pos = &dr.host_pos;
+        const rows = &dr.host_ring_rows;
         for (items) |it| {
             if (it.slot >= pool.slots or n + it.n > max_absorb) return error.BadAbsorb;
             try e.ops.copyRows(e.s, it.taps, dr.taps_w * 2, dr.at + n * dr.taps_w * 2, dr.taps_w * 2, dr.taps_w * 2, it.n);
@@ -445,8 +471,8 @@ pub const Drafter = struct {
             n += it.n;
         }
         if (n == 0) return;
-        try prompt.upload(e, dr.apos, &pos, n * 8);
-        try prompt.upload(e, dr.arows, &rows, n * 8);
+        try prompt.upload(e, dr.apos, pos, n * 8);
+        try prompt.upload(e, dr.arows, rows, n * 8);
         try dr.mainKeys(e, ch, dr.at, n);
         for (dr.ds.blocks, 0..) |lay, j| {
             try tri_norm.kvNormRope(e.t, dr.ak[j], lay.kv_norm, e.plain.cos, e.plain.sin, dr.apos, pool.rings[j], pool.slots * pool.ring, dr.arows, e.c.eps, true, e.c.rope_dim, dr.ao, n, e.c.head_dim);
@@ -485,8 +511,10 @@ pub const Drafter = struct {
         if (N == 0 or N > max_streams or R > max_rows or q0.len != N or slots.len != N) return notPorted(@src());
         if (steps == 0 or steps > n) return error.BadDraftPass;
         // _body's index rows: ids [token, noise ...], positions q0 + j, window positions q0 - 1, ring bases
-        var hv: [6 * max_rows]i64 = @splat(0);
-        var hb: [max_rows * pick_pad]i64 = @splat(-1);
+        const hv = &dr.host_indices;
+        const hb = &dr.host_picks;
+        @memset(hv, 0);
+        @memset(hb, -1);
         const bw: usize = if (R > tri.decode_rows) pick_pad else n; // the pick list's columns
         for (0..N) |i| {
             if (slots[i] < 0 or slots[i] >= pool.slots) return error.BadSlot;
@@ -501,19 +529,20 @@ pub const Drafter = struct {
                 for (0..n) |k| hb[r * bw + k] = @intCast(i * n + k);
             }
         }
-        try prompt.upload(e, dr.rows, &hv, hv.len * 8);
-        try prompt.upload(e, dr.bidx, &hb, R * bw * 8);
+        try prompt.upload(e, dr.rows, hv, hv.len * 8);
+        try prompt.upload(e, dr.bidx, hb, R * bw * 8);
         // the Markov loop's out [N, steps + 1]: each stream's last token first
         const ts = steps + 1;
-        var ho: [max_streams * (max_block + 1)]i64 = @splat(0);
+        const ho = &dr.host_output;
+        @memset(ho, 0);
         for (0..N) |i| ho[i * ts] = tokens[i];
-        try prompt.upload(e, dr.out, &ho, N * ts * 8);
+        try prompt.upload(e, dr.out, ho, N * ts * 8);
         if (dr.graphs != null and probe == null) try dr.graphs.?.run(dr, e, ch, pool, N, steps) else try dr.body(e, ch, pool, N, steps, probe);
         // one host read: the drafts and the confidences
         try e.s.synchronize();
-        var hc: [max_streams * max_block]f32 = undefined;
-        try e.d.check(e.d.api.cuMemcpyDtoH_v2(&ho, dr.out, N * ts * 8), "cuMemcpyDtoH");
-        try e.d.check(e.d.api.cuMemcpyDtoH_v2(&hc, dr.conf, N * steps * 4), "cuMemcpyDtoH");
+        const hc = &dr.host_confidence;
+        try e.d.check(e.d.api.cuMemcpyDtoH_v2(ho, dr.out, N * ts * 8), "cuMemcpyDtoH");
+        try e.d.check(e.d.api.cuMemcpyDtoH_v2(hc, dr.conf, N * steps * 4), "cuMemcpyDtoH");
         for (0..N) |i| for (0..steps) |j| {
             dr.drafts[i][j] = ho[i * ts + 1 + j];
             dr.confs[i][j] = hc[i * steps + j];
@@ -752,4 +781,28 @@ test "draft depths and pass steps as multi.py takes them" {
 fn notPorted(src: std.builtin.SourceLocation) error{NotPortedYet} {
     std.debug.print("{{\"not_ported\": \"{s}:{d}\"}}\n", .{ src.file, src.line });
     return error.NotPortedYet;
+}
+
+
+test "shared scratch host draft erasure preserves graph and device ownership" {
+    var dr: Drafter = undefined;
+    dr.host_pos = @splat(41);
+    dr.host_ring_rows = @splat(72);
+    dr.host_indices = @splat(9981);
+    dr.host_picks = @splat(13);
+    dr.host_output = @splat(9982);
+    dr.host_confidence = @splat(0.75);
+    dr.rows = 0x1000;
+    dr.out = 0x2000;
+    dr.graphs = null;
+    dr.n = 5;
+    dr.eraseHostScratch();
+    inline for (.{ "host_pos", "host_ring_rows", "host_indices", "host_picks", "host_output" }) |name| {
+        for (@field(dr, name)) |v| try std.testing.expectEqual(@as(i64, 0), v);
+    }
+    for (dr.host_confidence) |v| try std.testing.expectEqual(@as(f32, 0), v);
+    try std.testing.expectEqual(@as(u64, 0x1000), dr.rows);
+    try std.testing.expectEqual(@as(u64, 0x2000), dr.out);
+    try std.testing.expect(dr.graphs == null);
+    try std.testing.expectEqual(@as(usize, 5), dr.n);
 }

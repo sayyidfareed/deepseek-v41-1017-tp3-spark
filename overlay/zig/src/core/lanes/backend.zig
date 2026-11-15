@@ -95,9 +95,18 @@ pub const Backend = struct {
         redraw: ?*const fn (ptr: *anyopaque, r: Redraw, allow: Allow) anyerror!?u32 = null,
         /// Exclude graph capture and retirement from learned steady-state timings.
         timing_clean: ?*const fn (ptr: *anyopaque) bool = null,
+        private_cache_poll: ?*const fn (ptr: *anyopaque) anyerror!void = null,
+        private_cache_forget: ?*const fn (ptr: *anyopaque, scope: ?*const [32]u8) anyerror!usize = null,
         /// The stream left the rounds: free its caches and held drafts.
         release: *const fn (ptr: *anyopaque, s: *Stream) void,
     };
+
+    pub fn privateCachePoll(b: Backend) !void {
+        if (b.vtable.private_cache_poll) |f| try f(b.ptr);
+    }
+    pub fn privateForget(b: Backend, scope: ?*const [32]u8) !usize {
+        return if (b.vtable.private_cache_forget) |f| f(b.ptr, scope) else 0;
+    }
 
     pub fn timingClean(b: Backend) bool {
         return if (b.vtable.timing_clean) |f| f(b.ptr) else true;

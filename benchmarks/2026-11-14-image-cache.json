@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-14",
+  "synthetic_only": true,
+  "model": "Mia 1017 EAQ v1 2.9 bpw with matching Keys attention overlay",
+  "streams": 12,
+  "pool_tokens": 6400000,
+  "qualification_scope": "Retained deployed-build synthetic checks; this public package was not deployed or newly benchmarked. Single wave per C4 arm.",
+  "c4": {
+    "before_repair": {
+      "aggregate_decode_tok_s": 172.8436389252659,
+      "aggregate_end_to_end_tok_s": 162.79465939144538,
+      "observed_reply_overlap": 4,
+      "output_tokens_per_request": 384
+    },
+    "after_repair": {
+      "aggregate_decode_tok_s": 151.65541203655079,
+      "aggregate_end_to_end_tok_s": 144.15578745664365,
+      "observed_reply_overlap": 4,
+      "output_tokens_per_request": 384
+    },
+    "after_repair_mixed_3_ordinary_1_secure": {
+      "aggregate_decode_tok_s": 176.46108743529552,
+      "aggregate_end_to_end_tok_s": 166.40089790893947,
+      "observed_reply_overlap": 4,
+      "output_tokens_per_request": 384
+    }
+  },
+  "image_admission": {
+    "cold_prompt_tokens_before": 131098,
+    "cold_prompt_tokens_after": 131099,
+    "image_join_delay_s": 1.0042780739604495,
+    "image_elapsed_before_s": 42.934800085029565,
+    "image_elapsed_after_s": 1.7981446360354312,
+    "cold_text_elapsed_before_s": 43.549978959024884,
+    "cold_text_elapsed_after_s": 44.808065224962775
+  },
+  "installed_ordinary_images": [
+    {
+      "format": "PNG",
+      "status": 200,
+      "answer_valid": true,
+      "elapsed_s": 0.47019765101140365
+    },
+    {
+      "format": "JPEG",
+      "status": 200,
+      "answer_valid": true,
+      "elapsed_s": 0.4010089029907249
+    },
+    {
+      "format": "WEBP",
+      "status": 200,
+      "answer_valid": true,
+      "elapsed_s": 0.3943190930294804
+    },
+    {
+      "format": "JPEG",
+      "status": 200,
+      "answer_valid": true,
+      "elapsed_s": 0.39891505701234564
+    }
+  ]
+}

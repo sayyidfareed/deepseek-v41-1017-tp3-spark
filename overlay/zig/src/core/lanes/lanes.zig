@@ -1,6 +1,7 @@
 // Modified for the DeepSeek 1017 TP3 integration; upstream copyrights retained. See CREDITS.md and provenance.json.
 //! The lane engine's host core (Python lane_engine.py); backends run forwards and draws behind `backend.Backend`.
 const std = @import("std");
+pub const ZeroFree = @import("zero_free.zig").ZeroFree;
 
 pub const table = @import("table.zig");
 pub const allocate = @import("allocate.zig");

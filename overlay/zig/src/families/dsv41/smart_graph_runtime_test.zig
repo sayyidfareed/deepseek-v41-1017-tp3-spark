@@ -4,7 +4,7 @@ const std = @import("std");
 const control = @import("smart_graph_controller.zig");
 const p = @import("smart_graph_policy.zig");
 const fake = @import("smart_graph_fake_link.zig");
-const Scenario = enum { normal, host_oom, capture_failure, disconnect, config_mismatch, disabled };
+const Scenario = enum { normal, mixed_private, host_oom, capture_failure, disconnect, config_mismatch, disabled };
 const Runner = struct {
     rank: u32,
     peers: [3]?fake.Link,
@@ -60,7 +60,20 @@ const Runner = struct {
             s.captured = 1;
             return;
         }
+        if (s.scenario == .mixed_private) {
+            try rt.privateEnter();
+            try rt.privateEnter();
+        }
         for (0..128) |i| {
+            if (s.scenario == .mixed_private and (i == 64 or i == 96)) {
+                const inventory_before = rt.ledger.?.inventory();
+                try rt.privateLeave();
+                try std.testing.expectEqual(@as(usize, if (i == 64) 1 else 0), rt.private_count);
+                try std.testing.expectEqual(inventory_before, rt.ledger.?.inventory());
+                try std.testing.expectEqual(@as(u64, 0), rt.ledger.?.clock);
+                try std.testing.expectEqual(@as(u64, 0), rt.ledger.?.captures);
+                try std.testing.expectEqual(@as(u64, 0), rt.ledger.?.hits);
+            }
             const group: p.Group = .{ .kind = .round, .rows = 6, .bucket = 1 + (i / 3) % 16 };
             try rt.boundary(true, group);
             rt.use(group);
@@ -116,6 +129,17 @@ test "actual controller: one host allocation failure chooses eager on all ranks"
         try std.testing.expectEqual(ranks[0].captured, s.captured);
     }
 }
+test "actual controller: overlapping private requests discard learning at each completion and preserve graph owners" {
+    const ranks = try campaign(.mixed_private);
+    for (ranks) |s| {
+        try std.testing.expectEqual(null, s.err);
+        try std.testing.expect(!s.failed);
+        try std.testing.expectEqual(ranks[0].generation, s.generation);
+        try std.testing.expectEqual(ranks[0].inventory, s.inventory);
+        try std.testing.expectEqualSlices(u64, &ranks[0].owners, &s.owners);
+        try std.testing.expect(s.captured > 0);
+    }
+}
 test "actual controller: a partial capture failure poisons every rank without eager retry" {
     const ranks = try campaign(.capture_failure);
     for (ranks) |s| {
@@ -145,4 +169,22 @@ test "disabled controller has no metadata or per primitive control traffic" {
         try std.testing.expectEqual(@as(u64, 0), s.generation);
         try std.testing.expectEqual(@as(u64, 1), s.captured);
     }
+}
+
+test "private controller refuses persistent history and invalid ownership; error close frees temporary state" {
+    var owner: Runner = .{ .rank = 0, .peers = @splat(null), .scenario = .normal };
+    var rt = try control.Runtime.open(std.testing.allocator, .{ .enabled = true }, 0x123, 0, 1, &.{}, &owner, Runner.retire, Runner.mask);
+    defer rt.close();
+    try std.testing.expectError(error.GraphPrivateOwnership, rt.privateLeave());
+    rt.stats_path = "/synthetic/not-written";
+    try std.testing.expectError(error.GraphPrivatePersistence, rt.privateEnter());
+    try std.testing.expectEqual(@as(usize, 0), rt.private_count);
+    try std.testing.expectEqual(null, rt.private_snapshot);
+    rt.stats_path = null;
+    try rt.privateEnter();
+    try rt.privateEnter();
+    rt.hit();
+    rt.poison();
+    // close() is the actual failed-engine teardown; testing allocator detects
+    // leaked snapshot or ledger storage, without executing a CUDA operation.
 }

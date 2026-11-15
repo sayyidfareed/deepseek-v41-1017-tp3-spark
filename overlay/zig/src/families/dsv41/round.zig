@@ -252,7 +252,20 @@ pub const Round = struct {
     pl2: u64 = 0,
     po2: u64 = 0,
 
+    // Pageable uploads stay model-owned until the all-rank completion fence.
+    // Graph nodes retain device pointers, not these token/position values.
+    host_glue: [glue_n * max_rows]i64,
+    host_inputs: [5 * max_rows]i64,
+
+    pub fn eraseHostScratch(rd: *Round) void {
+        std.crypto.secureZero(i64, &rd.host_glue);
+        std.crypto.secureZero(i64, &rd.host_inputs);
+    }
+
     pub fn init(e: *const Engine, a: *prompt.Arena, gpa: std.mem.Allocator, pool_cap: usize) !Round {
+        const previous_scope = a.scratch_scope;
+        a.scratch_scope = true;
+        defer a.scratch_scope = previous_scope;
         const c = e.c;
         const w = e.w;
         const R = e.round_rows;
@@ -264,6 +277,7 @@ pub const Round = struct {
         const l0 = w.layers[0];
         const nb_max = bucketFor(pool_cap, pool_cap);
         var rd: Round = undefined;
+        rd.eraseHostScratch();
         rd.r = 0;
         // the profile's clocks off until Model.useClock (rd starts undefined: a field default does not apply)
         rd.launches = @splat(0);
@@ -343,6 +357,7 @@ pub const Round = struct {
             var ev: [max_rows]i64 = @splat(tri_index.every_vis);
             try prompt.upload(e, rd.pbufs.every, &ev, R * 8);
         }
+        try a.keepScratch(rd.pbufs.every);
         rd.kvg = try a.take(R * 2 * hd * 4);
         rd.sg = try a.take(R * 2 * hd * 4);
         rd.lat2 = try a.take(R * hd * 2);
@@ -396,6 +411,7 @@ pub const Round = struct {
                 off += wo.k;
             }
             rd.wo_suh[li] = dst;
+            try a.keepScratch(dst);
         }
         var ev = try cuda.Event.init(e.d, false);
         errdefer ev.deinit();
@@ -681,7 +697,8 @@ pub const Round = struct {
 /// rounds.py _ix's tensors for these rows (each row's slot and extent), made on the host and uploaded in one copy.
 fn setGlue(e: *const Engine, rd: *Round, rows: Rows) !void {
     const R = rows.ids.len;
-    var hg: [glue_n * max_rows]i64 = @splat(0);
+    const hg = &rd.host_glue;
+    @memset(hg, 0);
     const rs: i64 = @intCast(e.c.window + ring_extra);
     const raw: i64 = raw_rows;
     for (0..R) |i| {
@@ -694,30 +711,31 @@ fn setGlue(e: *const Engine, rd: *Round, rows: Rows) !void {
         const slot = rows.slotOf(i);
         const base = rows.baseOf(i);
         // wbase = slot * RS, wslot = wbase + pos % RS
-        at(&hg, .wbase, i).* = slot * rs;
-        at(&hg, .wslot, i).* = slot * rs + @mod(p, rs);
+        at(hg, .wbase, i).* = slot * rs;
+        at(hg, .wslot, i).* = slot * rs + @mod(p, rs);
         // ratio 1: cbase = base, ctarget = cbase + pos, gpos = pos, vis = pos + 1
-        at(&hg, .cbase1, i).* = base;
-        at(&hg, .ctarget1, i).* = base + p;
-        at(&hg, .gpos1, i).* = p;
-        at(&hg, .vis1, i).* = p + 1;
+        at(hg, .cbase1, i).* = base;
+        at(hg, .ctarget1, i).* = base + p;
+        at(hg, .gpos1, i).* = p;
+        at(hg, .vis1, i).* = p + 1;
         // ratio 2: groups = pos // 2, target = groups if the group is complete else the extent's last row (scratch)
         const cb2 = @divFloor(base, 2);
         const groups = @divFloor(p, 2);
         const scratch = @divFloor(rows.endOf(i), 2) - 1 - cb2;
-        at(&hg, .cbase2, i).* = cb2;
-        at(&hg, .ctarget2, i).* = cb2 + (if (@mod(p + 1, 2) == 0) groups else scratch);
-        at(&hg, .gpos2, i).* = groups * 2;
-        at(&hg, .vis2, i).* = @divFloor(p + 1, 2);
+        at(hg, .cbase2, i).* = cb2;
+        at(hg, .ctarget2, i).* = cb2 + (if (@mod(p + 1, 2) == 0) groups else scratch);
+        at(hg, .gpos2, i).* = groups * 2;
+        at(hg, .vis2, i).* = @divFloor(p + 1, 2);
         // rslot = slot * RAW + pos % RAW; gi = rbase + (groups * 2 + [0, 1]) % RAW, rbase = slot * RAW
-        at(&hg, .rslot, i).* = slot * raw + @mod(p, raw);
+        at(hg, .rslot, i).* = slot * raw + @mod(p, raw);
         const gi0 = @as(usize, @backingInt(Glue.gi)) * max_rows;
         hg[gi0 + 2 * i] = slot * raw + @mod(groups * 2, raw);
         hg[gi0 + 2 * i + 1] = slot * raw + @mod(groups * 2 + 1, raw);
     }
-    try prompt.upload(e, rd.glue, &hg, hg.len * 8);
+    try prompt.upload(e, rd.glue, hg, hg.len * 8);
     // RoundDecoder.set: [ids, pos, slots, base, end] in one [5, R] copy
-    var in: [5 * max_rows]i64 = @splat(0);
+    const in = &rd.host_inputs;
+    @memset(in, 0);
     for (0..R) |i| {
         in[i] = rows.ids[i];
         in[R + i] = rows.pos[i];
@@ -725,7 +743,7 @@ fn setGlue(e: *const Engine, rd: *Round, rows: Rows) !void {
         in[3 * R + i] = rows.baseOf(i);
         in[4 * R + i] = rows.endOf(i);
     }
-    try prompt.upload(e, rd.inputs, &in, 5 * R * 8);
+    try prompt.upload(e, rd.inputs, in, 5 * R * 8);
     rd.ids = rd.inputs;
     rd.pos = rd.inputs + R * 8;
     if (e.kv) |kv| try setShardGlue(e, rd, rows, kv.sh);
@@ -1829,4 +1847,20 @@ test "graph ownership preserves every shard-mode key" {
             for (0..mode) |other| try std.testing.expect(!std.meta.eql(key, Graphs.group(.{ .rows = 48, .bucket = bucket, .mode = @intCast(other) })));
         }
     }
+}
+
+
+test "shared scratch host round erasure preserves reusable device addresses" {
+    var rd: Round = undefined;
+    rd.host_glue = @splat(73);
+    rd.host_inputs = @splat(9981);
+    rd.inputs = 0x1000;
+    rd.glue = 0x2000;
+    rd.bucket = 4096;
+    rd.eraseHostScratch();
+    for (rd.host_glue) |v| try std.testing.expectEqual(@as(i64, 0), v);
+    for (rd.host_inputs) |v| try std.testing.expectEqual(@as(i64, 0), v);
+    try std.testing.expectEqual(@as(u64, 0x1000), rd.inputs);
+    try std.testing.expectEqual(@as(u64, 0x2000), rd.glue);
+    try std.testing.expectEqual(@as(usize, 4096), rd.bucket);
 }

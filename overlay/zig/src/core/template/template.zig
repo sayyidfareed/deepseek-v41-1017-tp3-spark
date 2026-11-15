@@ -103,7 +103,12 @@ pub fn compile(gpa: Allocator, source: []const u8, diag: ?*Diag) Error!Compiled 
 /// Only the text (and a refusal's message) comes from `gpa`: the render's scratch is the page allocator's, given back
 /// when it returns, so an arena `gpa` (a server request's) keeps nothing else of it (~28 bytes a prompt byte otherwise).
 pub fn render(gpa: Allocator, t: *const Compiled, messages: std.json.Value, tools: std.json.Value, context: std.json.Value, add_generation_prompt: bool, diag: ?*Diag) Error![]u8 {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    return renderWithScratch(gpa, t, messages, tools, context, add_generation_prompt, diag, std.heap.page_allocator);
+}
+
+/// Identical rendering with explicit temporary storage for no-retention callers.
+pub fn renderWithScratch(gpa: Allocator, t: *const Compiled, messages: std.json.Value, tools: std.json.Value, context: std.json.Value, add_generation_prompt: bool, diag: ?*Diag, scratch: Allocator) Error![]u8 {
+    var arena = std.heap.ArenaAllocator.init(scratch);
     defer arena.deinit();
     const a = arena.allocator();
     var out: std.ArrayList(u8) = .empty;

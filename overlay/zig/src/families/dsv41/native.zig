@@ -153,6 +153,21 @@ const State = struct {
     watch: ?link.Watch = null, // the followers' links, watched for a close while the policy is on (pairWatch)
 };
 
+pub fn sharedSecureCacheEnabled(ctx: *anyopaque) bool {
+    const st: *State = @ptrCast(@alignCast(ctx));
+    return st.lanes.shared_private_ready and st.lanes.private_cache.budget != 0;
+}
+
+pub fn sharedSecureCheck(ctx: *anyopaque) !void {
+    const st: *State = @ptrCast(@alignCast(ctx));
+    try st.lanes.checkSharedPrivate();
+}
+
+pub fn secureEnter(ctx: *anyopaque, options: @import("secure_state.zig").Options) !*@import("secure_cluster.zig").Session {
+    const st: *State = @ptrCast(@alignCast(ctx));
+    return @import("secure_cluster.zig").Session.enter(st.gpa, &st.lanes, options);
+}
+
 fn getenv(name: [:0]const u8) ?[]const u8 {
     return std.mem.span(std.c.getenv(name) orelse return null);
 }

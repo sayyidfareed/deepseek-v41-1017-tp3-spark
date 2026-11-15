@@ -32,6 +32,9 @@ const connection_keep: usize = 1 << 20;
 pub const CompactAt = union(enum) { auto, fraction: f64 };
 
 pub const Config = struct {
+    /// Set by a trusted dedicated listener, never by request JSON.
+    secure_request: bool = false,
+    gate: ?*@import("secure_gate.zig").Gate = null,
     served_name: []const u8,
     /// The served name first, then aliases, without repeats.
     model_ids: []const []const u8,
@@ -68,6 +71,7 @@ pub const Config = struct {
 
 pub const Server = struct {
     gpa: Allocator,
+    request_zero: api.ZeroFree,
     io: std.Io,
     engine: api.Engine,
     info: api.Info,
@@ -100,8 +104,15 @@ pub const Server = struct {
 
     /// Reads what the template and tokenizer decide once: late system role, think markers, efforts, the forced close.
     pub fn init(gpa: Allocator, io: std.Io, engine: api.Engine, text: model_text.Text, config: Config, keys: ?*auth.Store) !*Server {
+        if (config.secure_request) {
+            const secure_keys = keys orelse return error.SecureAuthenticationRequired;
+            if (!secure_keys.enabled() or config.gate == null) return error.SecureAuthenticationRequired;
+            if (text.vtable.encode_private == null or text.vtable.decode_private == null or text.vtable.render_private == null) return error.SecureTokenizerUnsupported;
+        }
         const srv = try gpa.create(Server);
-        srv.* = .{ .gpa = gpa, .io = io, .engine = engine, .info = engine.info(), .text = text, .config = config, .keys = keys, .metrics = .{ .gpa = gpa }, .store = .{ .gpa = gpa }, .gate = .init(config.prepare_floor_gib), .arena = .init(gpa) };
+        srv.* = .{ .gpa = gpa, .request_zero = .{ .parent = gpa }, .io = io, .engine = engine, .info = engine.info(), .text = text, .config = config, .keys = keys, .metrics = .{ .gpa = gpa }, .store = .{ .gpa = gpa }, .gate = .init(config.prepare_floor_gib), .arena = .init(gpa) };
+        if (config.secure_request) srv.text.private_scratch = srv.request_zero.allocator();
+        if (config.secure_request) srv.info = engine.secureInfo();
         if (config.keep_warm_s > 0) if (engine.keepaliveTarget()) |target| {
             srv.keepalive = api.keepalive.Keepalive.start(gpa, io, target, @as(i64, config.keep_warm_s) * std.time.ns_per_s) catch |e| blk: {
                 log.line("idle keepalive off: {s}", .{@errorName(e)});
@@ -137,11 +148,26 @@ pub const Server = struct {
         return srv;
     }
 
+    /// Both listeners feed one engine: cancellation IDs must never overlap.
+    pub fn nextEngineId(srv: *Server) !u64 {
+        const ordinal = srv.next_id.fetchAdd(1, .monotonic);
+        const private_bit: u64 = @as(u64, 1) << 63;
+        if (ordinal == 0 or ordinal >= private_bit) return error.RequestIdExhausted;
+        return ordinal | (if (srv.config.secure_request) private_bit else @as(u64, 0));
+    }
+
+    /// Cross-thread request allocations use the same erasing allocator as HTTP buffers.
+    pub fn requestAllocator(srv: *Server) Allocator {
+        return if (srv.config.secure_request) srv.request_zero.allocator() else srv.gpa;
+    }
+
     pub fn deinit(srv: *Server) void {
         if (srv.keepalive) |k| k.stop(); // before the engine's queue goes away
         if (srv.vocab) |*v| v.deinit(srv.gpa);
         srv.arena.deinit();
         srv.store.deinit();
+        for (srv.metrics.requests.items) |r| srv.gpa.free(r.key);
+        srv.metrics.requests.deinit(srv.gpa);
         srv.gpa.destroy(srv);
     }
 
@@ -280,6 +306,7 @@ pub const Server = struct {
 
     /// Counts one finished request for /metrics.
     pub fn noteRequest(srv: *Server, prompt_len: usize, cached: usize, generated: usize, drafted: u64, accepted: u64, rounds: u64, received: i96, first: ?i96, last: ?i96, prefill: ?f64) void {
+        if (srv.config.secure_request) return;
         const now = clock.nowNs(srv.io);
         const tpot = srv.metrics.tpotValue(first, last, generated);
         srv.metrics.note(srv.io, prompt_len, cached, generated, drafted, accepted, rounds, @max(0, clock.seconds(now - received)), if (first) |f| clock.seconds(f - received) else null, if (first) |f| @max(0, clock.seconds(now - f)) else null, prefill, tpot);
@@ -302,14 +329,29 @@ pub const Server = struct {
         defer _ = std.posix.system.close(accepted.fd);
         var peer_buf: [64]u8 = undefined;
         const peer = listener_mod.peerText(&peer_buf, accepted.peer);
-        var conn = http_conn.Conn.init(srv.gpa, accepted.fd, peer) catch return;
+        var held = false;
+        // HTTP buffers are erased before backend cleanup releases ordinary admission.
+        defer if (held) if (srv.config.gate) |gate| gate.leave(srv.config.secure_request);
+        var zero: @import("zero_free.zig").ZeroFree = .{ .parent = srv.gpa };
+        const alloc = if (srv.config.secure_request) zero.allocator() else srv.gpa;
+        var conn = http_conn.Conn.init(alloc, accepted.fd, peer) catch return;
         defer conn.deinit();
+        conn.secure_request = srv.config.secure_request;
         conn.timeouts = srv.config.timeouts;
         conn.auth_enabled = srv.keys != null and srv.keys.?.enabled();
-        if (conn.auth_enabled) conn.hook = .{ .ctx = srv, .call = countReply };
-        var arena: std.heap.ArenaAllocator = .init(srv.gpa);
+        if (conn.auth_enabled and !srv.config.secure_request) conn.hook = .{ .ctx = srv, .call = countReply };
+        var arena: std.heap.ArenaAllocator = .init(alloc);
         defer arena.deinit();
         while (true) {
+            if (srv.config.gate != null and !conn.requestReady()) break;
+            if (!srv.config.secure_request) if (srv.config.gate) |gate| {
+                gate.enter(false) catch {
+                    conn.close = true;
+                    conn.sendJson(503, "{\"error\":{\"message\":\"service unavailable\"}}");
+                    break;
+                };
+                held = true;
+            };
             // a kept-alive connection keeps at most this much of its last request between requests (a long prompt's
             // text and ids are tens of MiB, and retain_capacity held them until the connection closed)
             _ = arena.reset(.{ .retain_with_limit = connection_keep });
@@ -317,12 +359,64 @@ pub const Server = struct {
             const outcome = conn.readRequest(a, true) catch break;
             switch (outcome) {
                 .closed => break,
-                .handled => if (conn.close) break else continue,
+                .handled => {
+                    if (srv.config.secure_request or conn.close) break;
+                    if (held) { srv.config.gate.?.leave(false); held = false; }
+                    continue;
+                },
                 .ready => {},
             }
             if (!srv.authenticate(&conn, a)) break;
+            const cache_scope = @import("secure_cache_scope.zig");
+            conn.secure_cache_scope = cache_scope.parse(srv.config.secure_request,
+                conn.headerCount(cache_scope.header), conn.header(cache_scope.header)) catch {
+                conn.close = true;
+                conn.sendJson(400, "{\"error\":{\"message\":\"invalid secure cache scope\"}}");
+                break;
+            };
+            var cache_ticket: api.SecureCacheTicket = undefined;
+            var cache_registered = false;
+            defer if (cache_registered) {
+                srv.engine.vtable.secure_cache_leave.?(srv.engine.ctx, &cache_ticket);
+                conn.secure_cache_ticket = null;
+            };
+            if (srv.config.secure_request) {
+                conn.close = true;
+                // Static model discovery and refused routes cannot run inference.
+                // Do not allocate private GPU state or pause ordinary work for them.
+                if (!std.mem.eql(u8, conn.method, "POST") or
+                    !std.mem.eql(u8, auth.routePath(conn.path), "/v1/chat/completions")) {
+                    routes.dispatch(srv, &conn, a);
+                    break;
+                }
+                if (conn.secure_cache_scope) |scope| {
+                    const enter = srv.engine.vtable.secure_cache_enter orelse {
+                        conn.sendJson(503, "{\"error\":{\"message\":\"cache unavailable\"}}");
+                        break;
+                    };
+                    if (srv.engine.vtable.secure_cache_leave == null) break;
+                    cache_ticket = .{ .scope = scope };
+                    enter(srv.engine.ctx, &cache_ticket) catch {
+                        cache_ticket.clear();
+                        conn.sendJson(503, "{\"error\":{\"message\":\"cache unavailable\"}}");
+                        break;
+                    };
+                    cache_registered = true;
+                    conn.secure_cache_ticket = &cache_ticket;
+                }
+                // Protected headers are authenticated before GPU exclusivity.
+                // A bad key must not pause ordinary work or reset any rank.
+                const gate = srv.config.gate orelse break;
+                gate.enter(true) catch {
+                    conn.sendJson(503, "{\"error\":{\"message\":\"service unavailable\"}}");
+                    break;
+                };
+                held = true;
+            }
             if (conn.header("Expect")) |expect| if (std.ascii.eqlIgnoreCase(expect, "100-continue") and std.mem.order(u8, conn.version, "HTTP/1.1") != .lt) conn.sendContinue();
             routes.dispatch(srv, &conn, a);
+            if (srv.config.secure_request) break;
+            if (held) { srv.config.gate.?.leave(false); held = false; }
             if (conn.close or conn.broken) break;
             _ = arena.reset(.{ .retain_with_limit = connection_keep }); // (before waiting for the next request)
         }
@@ -330,15 +424,16 @@ pub const Server = struct {
 
     fn countReply(ctx: *anyopaque, conn: *http_conn.Conn, code: u16) void {
         const srv: *Server = @ptrCast(@alignCast(ctx));
+        if (srv.config.secure_request) return;
         srv.metrics.httpRequest(srv.io, conn.key_label orelse "unauthenticated", code);
     }
 
     /// The key gate before any route: 401 for a gated path without a valid key (``Authenticated._authenticate``).
     fn authenticate(srv: *Server, conn: *http_conn.Conn, a: Allocator) bool {
-        const keys = srv.keys orelse return true;
-        if (std.mem.eql(u8, conn.method, "OPTIONS") or !keys.enabled()) return true;
-        conn.key_label = keys.match(a, single(conn, "Authorization"), single(conn, "x-api-key"));
-        if (!auth.gated(conn.path, keys.metrics_open) or conn.key_label != null) return true;
+        const keys = srv.keys orelse return !srv.config.secure_request;
+        if (!srv.config.secure_request and (std.mem.eql(u8, conn.method, "OPTIONS") or !keys.enabled())) return true;
+        conn.key_label = keys.matchWithDiagnostics(a, single(conn, "Authorization"), single(conn, "x-api-key"), !srv.config.secure_request);
+        if ((!srv.config.secure_request and !auth.gated(conn.path, keys.metrics_open)) or conn.key_label != null) return true;
         const path = auth.routePath(conn.path);
         const messages = for ([_][]const u8{ "/v1/messages", "/v1/messages/count_tokens", "/messages", "/messages/count_tokens" }) |p| {
             if (std.mem.eql(u8, path, p)) break true;
@@ -392,4 +487,19 @@ fn lateSystem(a: Allocator, text: model_text.Text) ![]const u8 {
 /// ``needs_user_after_tool``: the template raises "No user query found" when the conversation has no user query, which a conversation whose user turn became tool results no longer has; such templates gain a user turn after a trailing tool message.
 fn needsUserAfterTool(source: []const u8) bool {
     return std.mem.indexOf(u8, source, "No user query found") != null;
+}
+
+
+test "ordinary and secure listener engine IDs never collide at the same ordinal" {
+    var ordinary: Server = undefined;
+    ordinary.next_id = .init(1);
+    ordinary.config.secure_request = false;
+    var private: Server = undefined;
+    private.next_id = .init(1);
+    private.config.secure_request = true;
+    try std.testing.expectEqual(@as(u64, 1), try ordinary.nextEngineId());
+    try std.testing.expectEqual((@as(u64, 1) << 63) | 1, try private.nextEngineId());
+    try std.testing.expect((try ordinary.nextEngineId()) != (try private.nextEngineId()));
+    ordinary.next_id.store(@as(u64, 1) << 63, .monotonic);
+    try std.testing.expectError(error.RequestIdExhausted, ordinary.nextEngineId());
 }

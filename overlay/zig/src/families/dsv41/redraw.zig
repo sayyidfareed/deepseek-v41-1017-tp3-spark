@@ -11,10 +11,15 @@ pub const Rows = struct {
     /// The stream whose prompt row Model.logits[0..V] holds, from its first draw until the next verify or prompt pass.
     prompt: ?*const lanes.Stream = null,
     /// The last verify's streams in window order (none after a prompt pass or a drafter pass).
-    streams: [model.max_streams]*const lanes.Stream = undefined,
+    streams: [model.max_streams]?*const lanes.Stream = @splat(null),
     count: usize = 0,
     /// Full logits stayed on the device (greedy argmax or GPU-candidate sampling).
     device_logits: bool = false,
+
+    pub fn forget(rows: *Rows, stream: *const lanes.Stream) void {
+        if (rows.prompt == stream) rows.prompt = null;
+        for (&rows.streams) |*entry| if (entry.* == stream) { entry.* = null; };
+    }
 
     /// The round row a redraw reads (null: the prompt row); error.StaleRow when those logits are gone.
     pub fn at(rows: *const Rows, wins: []const Window, r: lanes.backend.Redraw) !?usize {
@@ -52,4 +57,7 @@ test "a redraw reads the prompt row or a row of the last verify, and nothing sta
     try std.testing.expectError(error.StaleRow, rows.at(&wins, .{ .stream = &b, .row = .{ .window = 1, .row = 2 }, .position = 4 }));
     try std.testing.expectError(error.StaleRow, rows.at(&wins, .{ .stream = &a, .row = .{ .window = 1, .row = 0 }, .position = 2 }));
     try std.testing.expectError(error.StaleRow, rows.at(&wins, .{ .stream = &a, .position = 1 }));
+    rows.forget(&a);
+    try std.testing.expectError(error.StaleRow, rows.at(&wins, .{ .stream = &a, .row = .{ .window = 0, .row = 0 }, .position = 2 }));
+    try std.testing.expectEqual(@as(?usize, 4), try rows.at(&wins, .{ .stream = &b, .row = .{ .window = 1, .row = 1 }, .position = 3 }));
 }

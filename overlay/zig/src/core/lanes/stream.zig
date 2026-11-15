@@ -5,6 +5,7 @@ const shape = @import("shape.zig");
 const call_gate = @import("call_gate.zig");
 const plan_lanes = @import("plan_lanes.zig");
 const Allocator = std.mem.Allocator;
+const ZeroFree = @import("zero_free.zig").ZeroFree;
 const Proposer = @import("proposer.zig").Proposer;
 const Sampling = @import("sampling.zig").Sampling;
 const State = @import("depth.zig").State;
@@ -121,7 +122,12 @@ pub const Vision = struct {
     pub const PrepareError = error{ BadImage, OutOfMemory };
 };
 
+pub const secure_cache_tickets = @import("secure_cache_ticket.zig");
+pub const SecureCacheTicket = secure_cache_tickets.Ticket;
+
 pub const Spec = struct {
+    secure_request: bool = false,
+    secure_cache_ticket: ?*SecureCacheTicket = null,
     id: []const u8,
     prompt: []const u32,
     max_new: u32,
@@ -161,6 +167,10 @@ pub const Between = struct {
 };
 
 pub const Stream = struct {
+    /// Request ownership travels with a stream through shared scheduling. It is
+    /// not a capability claim: the backend must enforce private cache and cleanup.
+    secure_request: bool = false,
+    secure_cache_ticket: ?*SecureCacheTicket = null,
     id: []const u8,
     prompt_len: usize,
     max_new: u32,
@@ -224,8 +234,17 @@ pub const Stream = struct {
     copy_width: ?u32 = null,
     gate: ?call_gate.Gate = null,
 
-    pub fn init(gpa: Allocator, spec: Spec) !Stream {
+    pub fn secure_cache_revoked(s: *const Stream) bool {
+        const ticket = s.secure_cache_ticket orelse return true;
+        return !s.secure_request or ticket.revoked.load(.acquire);
+    }
+
+    pub fn init(parent: Allocator, spec: Spec) !Stream {
+        var zero: ZeroFree = .{ .parent = parent };
+        const gpa = if (spec.secure_request) zero.allocator() else parent;
         var s: Stream = .{
+            .secure_request = spec.secure_request,
+            .secure_cache_ticket = if (spec.secure_request) spec.secure_cache_ticket else null,
             .id = spec.id,
             .prompt_len = spec.prompt.len,
             .max_new = spec.max_new,
@@ -252,7 +271,9 @@ pub const Stream = struct {
         return s;
     }
 
-    pub fn deinit(s: *Stream, gpa: Allocator) void {
+    pub fn deinit(s: *Stream, parent: Allocator) void {
+        var zero: ZeroFree = .{ .parent = parent };
+        const gpa = if (s.secure_request) zero.allocator() else parent;
         if (s.gate) |*g| g.deinit(gpa);
         s.context.deinit(gpa);
         s.force.deinit(gpa);
@@ -260,7 +281,9 @@ pub const Stream = struct {
     }
 
     /// Forget the round loop's state (Python `_release_stream_state`).
-    pub fn dropRoundState(s: *Stream, gpa: Allocator) void {
+    pub fn dropRoundState(s: *Stream, parent: Allocator) void {
+        var zero: ZeroFree = .{ .parent = parent };
+        const gpa = if (s.secure_request) zero.allocator() else parent;
         if (s.depth) |*d| d.deinit(gpa);
         s.dropHeld(gpa);
         s.depth = null;
@@ -271,7 +294,9 @@ pub const Stream = struct {
         s.copy_width = null;
     }
 
-    pub fn dropHeld(s: *Stream, gpa: Allocator) void {
+    pub fn dropHeld(s: *Stream, parent: Allocator) void {
+        var zero: ZeroFree = .{ .parent = parent };
+        const gpa = if (s.secure_request) zero.allocator() else parent;
         if (s.next) |h| {
             if (h.tokens) |t| gpa.free(t);
             if (h.parents) |p| gpa.free(p);
@@ -320,11 +345,18 @@ pub const Stream = struct {
     }
 
     /// Begin the thinking budget's close: its first token now, the rest forced after it.
-    pub fn startClose(s: *Stream, gpa: Allocator) !u32 {
+    pub fn startClose(s: *Stream, parent: Allocator) !u32 {
+        var zero: ZeroFree = .{ .parent = parent };
+        const gpa = if (s.secure_request) zero.allocator() else parent;
         s.think_open = false;
         s.force.clearRetainingCapacity();
         try s.force.appendSlice(gpa, s.think_close[1..]);
         return s.think_close[0];
+    }
+
+    pub fn appendForced(s: *Stream, parent: Allocator, tokens: []const u32) !void {
+        var zero: ZeroFree = .{ .parent = parent };
+        try s.force.appendSlice(if (s.secure_request) zero.allocator() else parent, tokens);
     }
 
     /// Tokens a round may commit before the length limit or the thinking budget's cut.
@@ -339,7 +371,9 @@ pub const Stream = struct {
     }
 
     /// Append tokens until the stream finishes; how many landed (a prefix of `tokens`).
-    pub fn commit(s: *Stream, gpa: Allocator, tokens: []const u32) !usize {
+    pub fn commit(s: *Stream, parent: Allocator, tokens: []const u32) !usize {
+        var zero: ZeroFree = .{ .parent = parent };
+        const gpa = if (s.secure_request) zero.allocator() else parent;
         var landed: usize = 0;
         for (tokens) |t| {
             if (s.finished) break;
@@ -431,4 +465,28 @@ test "loop guard fires, closes thinking, and latches once" {
     try std.testing.expect(!s.finished and s.force.items.len == 0);
     _ = try s.commit(gpa, &.{8});
     try std.testing.expect(!s.finished and s.loop_period.? == 1);
+}
+
+
+test "secure stream erases replaced token storage without changing ordinary allocation" {
+    var bytes: [8192]u8 align(16) = @splat(0x77);
+    var fixed = std.heap.FixedBufferAllocator.init(&bytes);
+    const a = fixed.allocator();
+    var s = try Stream.init(a, .{ .secure_request = true, .id = "private", .prompt = &.{ 91, 92 }, .max_new = 256 });
+    const old = s.context.allocatedSlice();
+    // A later allocation prevents an in-place resize of the initial context.
+    const sentinel = try a.alloc(u8, 32);
+    @memset(sentinel, 0xab);
+    const next: [128]u32 = @splat(93);
+    _ = try s.commit(a, &next);
+    try std.testing.expect(s.context.items.ptr != old.ptr);
+    try std.testing.expect(std.mem.allEqual(u32, old, 0));
+    try s.appendForced(a, &.{ 94, 95 });
+    const forced = s.force.allocatedSlice();
+    const current = s.context.allocatedSlice();
+    s.deinit(a);
+    try std.testing.expect(std.mem.allEqual(u32, forced, 0));
+    try std.testing.expect(std.mem.allEqual(u32, current, 0));
+    try std.testing.expect(std.mem.allEqual(u8, sentinel, 0xab));
+    a.free(sentinel);
 }

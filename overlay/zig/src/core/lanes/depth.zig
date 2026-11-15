@@ -4,6 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Table = @import("table.zig").Table;
 const alloc = @import("allocate.zig");
+const ZeroFree = @import("zero_free.zig").ZeroFree;
 
 pub const Constants = struct {
     depth_rate: f64 = 0.15, // weight of the newest round in a depth's acceptance
@@ -30,6 +31,7 @@ pub const State = struct {
 
 /// What the rule reads of a stream when it decides.
 pub const Who = struct {
+    private: bool = false,
     state: *?State,
     draft_room: i64,
     finished: bool,
@@ -99,9 +101,12 @@ pub const Rule = struct {
     /// A stream's first round carries the prefill-to-decode switch: its time stays out of the costs.
     pub fn observeCost(r: *Rule, drafts: i64, ms: f64, initializing: bool, who: ?Who) !void {
         if (drafts < 0 or (drafts == 0 and !r.plain_guard) or initializing) return;
+        const private = if (who) |w| w.private else false;
+        if (private and !r.plain_guard) return; // never teach global costs from private work
         const table = try r.costs(who);
         const before = table.get(drafts);
-        try table.put(r.gpa, drafts, if (before) |b| b + r.k.cost_rate * (ms - b) else ms);
+        var zero: ZeroFree = .{ .parent = r.gpa };
+        try table.put(if (private) zero.allocator() else r.gpa, drafts, if (before) |b| b + r.k.cost_rate * (ms - b) else ms);
     }
 
     /// Measured round time when there is one, else the load-time forward cost plus head steps.

@@ -19,6 +19,8 @@ const nccl = cuda.nccl;
 
 /// ncclCommAbort's signature (NCCL 2.4 and later; every NCCL the serving image carries has it).
 pub const AbortFn = *const fn (nccl.Comm) callconv(.c) nccl.Result;
+pub const PrivateFn = *const fn (nccl.Comm, c_int, u64, cuda.abi.Stream) callconv(.c) nccl.Result;
+const PrivatePhase = enum { idle, fenced, erased, failed };
 
 pub const Comm = struct {
     lib: nccl.Library,
@@ -30,6 +32,9 @@ pub const Comm = struct {
     aborted: std.atomic.Value(bool) = .init(false),
     /// ncclCommAbort; null: looked up in `lib` when first needed (tests set a fake).
     abort_fn: ?AbortFn = null,
+    private_fn: ?PrivateFn = null,
+    private_phase: PrivatePhase = .idle,
+    private_epoch: u64 = 0,
 
     /// Rank 0 makes the id and sends it; the others take it from the link. Needs the CUDA context current.
     pub fn init(link: Link, rank: u32, world: u32) !Comm {
@@ -54,6 +59,53 @@ pub const Comm = struct {
         c.end();
         c.lib.close();
         c.* = undefined;
+    }
+
+    /// Private-session teardown must observe destruction failure; ordinary teardown
+    /// remains unchanged. No diagnostic is emitted from a secure cleanup path.
+    pub fn destroyPrivate(c: *Comm) !void {
+        if (c.aborted.load(.acquire)) return error.SecureCommunicatorAborted;
+        if (c.lib.api.ncclCommDestroy(c.comm) != 0) return error.SecureCommunicatorCleanup;
+        c.lib.close();
+        c.* = undefined;
+    }
+
+    /// Optional pinned extension: missing or unsupported means no shared secure
+    /// admission. Ordinary serving does not require or call this symbol.
+    pub fn checkSharedPrivate(c: *Comm) !void {
+        try c.enterRaw();
+        defer leave();
+        if (c.world != 3 or c.rank >= 3 or c.private_phase != .idle) return error.PrivateCollectiveUnsupported;
+        const f = c.private_fn orelse c.lib.lib.lookup(PrivateFn, "ncclTfPrivateV1") orelse
+            return error.PrivateCollectiveUnsupported;
+        if (f(c.comm, 0, 0, null) != 0) return error.PrivateCollectiveUnsupported;
+        c.private_fn = f;
+    }
+
+    /// Called between complete scheduler rounds. Rank-frame acknowledgements
+    /// establish the cross-rank barrier; NCCL establishes local GPU/proxy drain.
+    pub fn privateFence(c: *Comm, epoch: u64, stream: cuda.Stream) !void {
+        try c.privateStep(1, epoch, stream);
+    }
+    pub fn privateErase(c: *Comm, epoch: u64, stream: cuda.Stream) !void {
+        try c.privateStep(2, epoch, stream);
+    }
+    pub fn privateResume(c: *Comm, epoch: u64, stream: cuda.Stream) !void {
+        try c.privateStep(3, epoch, stream);
+    }
+
+    fn privateStep(c: *Comm, operation: c_int, epoch: u64, stream: cuda.Stream) !void {
+        try c.enterRaw();
+        defer leave();
+        const f = c.private_fn orelse return error.PrivateCollectiveUnsupported;
+        const expected: PrivatePhase = switch (operation) { 1 => .idle, 2 => .fenced, 3 => .erased, else => unreachable };
+        if (c.private_phase != expected or (operation != 1 and c.private_epoch != epoch))
+            return error.PrivateCollectiveOrder;
+        c.private_epoch = epoch;
+        c.private_phase = .failed;
+        if (f(c.comm, operation, epoch, stream.handle) != 0) return error.PrivateCollectiveCleanup;
+        c.private_phase = switch (operation) { 1 => .fenced, 2 => .erased, 3 => .idle, else => unreachable };
+        if (operation == 3) c.private_epoch = 0;
     }
 
     /// The communicator released: destroyed, unless an abort already freed it (NCCL: an aborted communicator is
@@ -102,11 +154,19 @@ pub const Comm = struct {
     }
 
     /// The enqueue gate taken and the communicator still live: the caller's NCCL calls, then `leave`.
-    fn enter(c: *const Comm) error{CommAborted}!void {
+    fn enterRaw(c: *const Comm) error{CommAborted}!void {
         while (gate.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
         if (c.aborted.load(.acquire)) {
             leave();
             return error.CommAborted;
+        }
+    }
+
+    fn enter(c: *const Comm) error{ CommAborted, CommPrivateFenced }!void {
+        try c.enterRaw();
+        if (c.private_phase != .idle) {
+            leave();
+            return error.CommPrivateFenced;
         }
     }
 
@@ -392,6 +452,65 @@ test "an abort never frees the communicator under an enqueue in progress: it mar
 
 /// A ring with only what `abort` touches (its failure flag, reason and metadata block's abort word).
 var test_meta: [4096]u8 align(std.heap.page_size_min) = @splat(0);
+
+const FakePrivate = struct {
+    var operations: [16]c_int = @splat(-1);
+    var count: usize = 0;
+    var failure: c_int = -1;
+    fn call(_: nccl.Comm, operation: c_int, _: u64, _: cuda.abi.Stream) callconv(.c) nccl.Result {
+        operations[count] = operation;
+        count += 1;
+        return if (operation == failure) 5 else 0;
+    }
+    fn setup() Comm {
+        FakeNccl.reset();
+        count = 0;
+        failure = -1;
+        var c = FakeNccl.comm(0);
+        c.world = 3;
+        c.private_fn = call;
+        return c;
+    }
+};
+
+test "secure collective cleanup prevents enqueues until exact fence erase resume order" {
+    var c = FakePrivate.setup();
+    const s: cuda.Stream = .{ .d = undefined, .handle = null };
+    try c.checkSharedPrivate();
+    try c.privateFence(0, s); // epoch zero is a valid first stream owner
+    try std.testing.expectError(error.CommPrivateFenced, c.allGather(1, 2, 1, .u8, s));
+    try std.testing.expectError(error.PrivateCollectiveOrder, c.privateResume(0, s));
+    try std.testing.expectError(error.PrivateCollectiveOrder, c.privateErase(1, s));
+    try std.testing.expectError(error.PrivateCollectiveOrder, c.privateFence(0, s));
+    try std.testing.expectEqual(@as(usize, 2), FakePrivate.count);
+    try c.privateErase(0, s);
+    try std.testing.expectError(error.CommPrivateFenced, c.allGather(1, 2, 1, .u8, s));
+    try c.privateResume(0, s);
+    try c.allGather(1, 2, 1, .u8, s);
+    try std.testing.expectEqualSlices(c_int, &.{ 0, 1, 2, 3 }, FakePrivate.operations[0..FakePrivate.count]);
+    try std.testing.expectEqual(@as(usize, 1), FakeNccl.gathers);
+    try std.testing.expectEqual(@as(usize, 0), FakeNccl.destroys);
+    try std.testing.expectEqual(@as(usize, 0), FakeNccl.aborts);
+    try c.privateFence(2, s);
+    try c.privateErase(2, s);
+    try c.privateResume(2, s);
+}
+
+test "secure collective failure stays fenced and is not mistaken for successful cleanup" {
+    for ([_]c_int{ 1, 2, 3 }) |failure| {
+        var c = FakePrivate.setup();
+        const s: cuda.Stream = .{ .d = undefined, .handle = null };
+        try c.checkSharedPrivate();
+        if (failure > 1) try c.privateFence(9, s);
+        if (failure > 2) try c.privateErase(9, s);
+        FakePrivate.failure = failure;
+        try std.testing.expectError(error.PrivateCollectiveCleanup, c.privateStep(failure, 9, s));
+        try std.testing.expectError(error.CommPrivateFenced, c.allGather(1, 2, 1, .u8, s));
+        try std.testing.expectError(error.PrivateCollectiveOrder, c.privateResume(9, s));
+        try std.testing.expectEqual(@as(usize, 0), FakeNccl.gathers);
+        try std.testing.expectEqual(@as(usize, 0), FakeNccl.destroys);
+    }
+}
 
 test "abortAll stops the RDMA rings (their abort word: a collect kernel spinning on a dead peer returns) and NCCL" {
     FakeNccl.reset();

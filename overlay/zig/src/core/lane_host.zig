@@ -48,6 +48,8 @@ pub const LaneHost = struct {
     admitted: std.ArrayList(*Job) = .empty,
     cancels: std.ArrayList(Id) = .empty,
     closing: bool = false,
+    secure_pause: @import("secure_pause.zig").Pause = .{},
+    secure_cache: @import("secure_cache_control.zig").Control = .{},
     thread: ?std.Thread = null,
     decoded: std.ArrayList(Mark) = .empty, // tokens a round landed, for the 2 s decode rate
     prefill_rate: f64 = 0,
@@ -71,6 +73,7 @@ pub const LaneHost = struct {
     // and frees its extent (its kept state then resumes in place) instead of waiting out every queued pass, as the
     // Python lane's fills leave decoding its share
     finish_until: ?i96 = null,
+    image_yield: bool = false, // give text a chunk between image fills
     filling: ?*Job = null, // the job whose prompt pass runs in pieces between rounds (core.filling's)
     // prefill interleave (TF_DS_PREFILL_INTERLEAVE_MS, 0/unset: off): between two chunks of a long prompt pass, decode
     // rounds for the other live streams for up to this many ms, their tokens delivered, so a cold long prompt slows a
@@ -214,6 +217,8 @@ pub const LaneHost = struct {
 
     const Job = struct {
         host: *LaneHost,
+        secure_request: bool = false,
+        zero: lanes.ZeroFree,
         id: Id,
         request: *const Request,
         sink: Sink,
@@ -274,6 +279,7 @@ pub const LaneHost = struct {
     /// positions by content (cache_key, one id a position: a kept state is found by tokens, and every picture's positions
     /// hold the same placeholder). Upstream's server always keys them; TF_DS_IMAGE_CACHE=0 leaves the key empty.
     fn cacheable(r: *const Request) bool {
+        if (r.secure_request) return false;
         return r.images.len == 0 or r.cache_key.len == r.prompt.len;
     }
 
@@ -351,8 +357,12 @@ pub const LaneHost = struct {
     }
 
     pub fn engine(h: *LaneHost) Engine {
-        return .{ .ctx = h, .vtable = &.{ .info = infoFn, .submit = submitFn, .cancel = cancelFn, .status = statusFn, .memory = memoryFn, .keepalive = keepaliveFn } };
+        return .{ .ctx = h, .vtable = &.{ .info = infoFn, .submit = submitFn, .cancel = cancelFn, .status = statusFn, .memory = memoryFn, .keepalive = keepaliveFn, .secure_cache_enter = cacheEnter, .secure_cache_leave = cacheLeave, .secure_forget = cacheForget } };
     }
+
+    fn cacheEnter(ctx: *anyopaque, ticket: *api.SecureCacheTicket) !void { const h = self(ctx); try h.secure_cache.enter(h, ticket); }
+    fn cacheLeave(ctx: *anyopaque, ticket: *api.SecureCacheTicket) void { const h = self(ctx); h.secure_cache.leave(h, ticket); }
+    fn cacheForget(ctx: *anyopaque, scope: ?*const [32]u8) !usize { const h = self(ctx); return h.secure_cache.forget(h, scope); }
 
     /// The family's queue as a keepalive target, when it set one.
     fn keepaliveFn(ctx: *anyopaque) ?api.keepalive.Target {
@@ -370,20 +380,21 @@ pub const LaneHost = struct {
     fn submitFn(ctx: *anyopaque, id: Id, request: *const Request, sink: Sink) SubmitError!void {
         const h = self(ctx);
         const job = h.gpa.create(Job) catch return error.Busy;
-        job.* = .{ .host = h, .id = id, .request = request, .sink = sink };
+        job.* = .{ .host = h, .secure_request = request.secure_request, .zero = .{ .parent = h.gpa }, .id = id, .request = request, .sink = sink };
         h.mutex.lockUncancelable(h.io);
         defer h.mutex.unlock(h.io);
         if (h.closing or h.isBroken()) { // (a broken pair admits nothing more: the process restarts)
-            h.gpa.destroy(job);
+            h.destroyJob(job);
             return error.Closed;
         }
+        if (h.secure_pause.requested.load(.acquire)) { h.destroyJob(job); return error.Busy; }
         // foreground before background, each in arrival order (the Python job queue's priority)
         var at = h.queued.items.len;
         if (!request.background) {
             while (at > 0 and h.queued.items[at - 1].request.background) at -= 1;
         }
         h.queued.insert(h.gpa, at, job) catch {
-            h.gpa.destroy(job);
+            h.destroyJob(job);
             return error.Busy;
         };
         h.wake.signal(h.io);
@@ -409,8 +420,8 @@ pub const LaneHost = struct {
         const n = @min(stream_tokens.len, h.live_tokens.items.len);
         @memcpy(stream_tokens[0..n], h.live_tokens.items[0..n]);
         out.* = .{
-            .running = @intCast(h.admitted.items.len),
-            .waiting = @intCast(h.queued.items.len + h.waitingCount()),
+            .running = @intCast(ordinaryCount(h.admitted.items)),
+            .waiting = @intCast(ordinaryCount(h.queued.items) + h.ordinaryWaitingCount()),
             .decode_tokens_per_second = @as(f64, @floatFromInt(tokens)) / 2.0,
             .prefill_tokens_per_second = if (now - h.prefill_at <= window_ns) h.prefill_rate else 0,
             .preemptions = 0,
@@ -462,7 +473,7 @@ pub const LaneHost = struct {
         const emitted = job.stream.emitted();
         if (emitted.len > job.delivered) {
             emit(job, .{ .tokens = emitted[job.delivered..] });
-            h.noteDecoded(emitted.len - job.delivered);
+            if (!job.secure_request) h.noteDecoded(emitted.len - job.delivered);
             job.delivered = emitted.len;
         }
     }
@@ -488,12 +499,35 @@ pub const LaneHost = struct {
         h.gpa.free(job.lineage);
         const s = &job.stream;
         const stats: Stats = if (job.started) .{ .rounds = s.rounds, .drafted = s.drafted, .accepted = s.accepted, .min_rows = s.min_rows, .loop_period = s.loop_period, .prefill_seconds = if (job.prefilled) |done| @as(f64, @floatFromInt(@as(i64, @intCast(@max(0, done - job.began))))) / 1e9 else null } else .{};
+        if (job.secure_request) {
+            const sink = job.sink;
+            const id = job.id;
+            if (job.started) {
+                h.core.clearPrivateScratch();
+                s.deinit(h.gpa);
+                job.proposer.deinit();
+            }
+            h.destroyJob(job);
+            // A completion callback can release the caller's request. Erase all
+            // host-owned private buffers first and retain no borrowed error text.
+            const event: Event = .{ .finished = .{ .reason = reason, .stats = stats, .message = if (reason == .failed) "Private request failed" else "" } };
+            sink.event(sink.ctx, id, &event);
+            return;
+        }
         emit(job, .{ .finished = .{ .reason = reason, .stats = stats, .message = message } });
         if (job.started) {
             s.deinit(h.gpa);
             job.proposer.deinit();
         }
-        h.gpa.destroy(job);
+        h.destroyJob(job);
+    }
+
+    fn destroyJob(h: *LaneHost, job: *Job) void {
+        // The wrapper must outlive the allocation being erased; job.zero cannot
+        // erase its own containing Job because that would destroy its parent.
+        var zero: lanes.ZeroFree = .{ .parent = h.gpa };
+        const a = if (job.secure_request) zero.allocator() else h.gpa;
+        a.destroy(job);
     }
 
     fn noteDecoded(h: *LaneHost, n: usize) void {
@@ -616,14 +650,14 @@ pub const LaneHost = struct {
             }
             h.finish_until = null;
         }
-        // Image preprocessing has one model view: never suspend it between text fills.
+        // Keep one image view exclusive; allow it to park text, but give text turns.
         if (h.core.fills() and h.hasFills()) {
             for (h.admitted.items) |j| if (j.prefilled == null and j.request.images.len > 0) {
                 h.unlock();
                 return false;
             };
             const next = if (h.ready.items.len > 0) h.ready.items[0] else h.queued.items[at];
-            if (next.request.images.len > 0) {
+            if (next.request.images.len > 0 and h.image_yield) {
                 h.unlock();
                 return false;
             }
@@ -711,8 +745,10 @@ pub const LaneHost = struct {
             // its rows' computation: the resumed state's forked at its position (written or not), else its own
             job.lineage = store.passLineage(l.entry) catch &.{};
         } else |_| {};
-        job.proposer = lanes.SuffixLookup.init(h.gpa, .{ .min_match = h.min_match }) catch return h.setupFailed(job, "the drafter could not start");
+        job.proposer = lanes.SuffixLookup.init(if (job.secure_request) job.zero.allocator() else h.gpa, .{ .min_match = h.min_match }) catch return h.setupFailed(job, "the drafter could not start");
         job.stream = lanes.Stream.init(h.gpa, .{
+            .secure_request = job.secure_request,
+            .secure_cache_ticket = r.secure_cache_ticket,
             .id = "request",
             .prompt = r.prompt,
             .max_new = r.max_tokens,
@@ -818,16 +854,20 @@ pub const LaneHost = struct {
     fn prefilled(h: *LaneHost, job: *Job, began: i96) void {
         const done = std.Io.Clock.awake.now(h.io).toNanoseconds();
         h.lock();
-        if (done > began) h.prefill_rate = @as(f64, @floatFromInt(job.request.prompt.len - job.stream.cached)) / (@as(f64, @floatFromInt(done - began)) / 1e9);
-        h.prefill_at = done;
+        if (!job.secure_request) {
+            if (done > began) h.prefill_rate = @as(f64, @floatFromInt(job.request.prompt.len - job.stream.cached)) / (@as(f64, @floatFromInt(done - began)) / 1e9);
+            h.prefill_at = done;
+        }
         job.prefilled = done;
         h.unlock();
         job.reported();
-        h.host_counts.cached_tokens += job.stream.cached;
-        h.host_counts.computed_tokens += job.request.prompt.len -| job.stream.cached;
-        if (h.cache) |store| {
-            store.continued(job.join, job.stream.cached, job.request.prompt.len);
-            store.report(job.request.prompt.len, job.stream.cached, store.counts.kept - job.kept0);
+        if (!job.secure_request) {
+            h.host_counts.cached_tokens += job.stream.cached;
+            h.host_counts.computed_tokens += job.request.prompt.len -| job.stream.cached;
+            if (h.cache) |store| {
+                store.continued(job.join, job.stream.cached, job.request.prompt.len);
+                store.report(job.request.prompt.len, job.stream.cached, store.counts.kept - job.kept0);
+            }
         }
         emit(job, .{ .prefilled = job.stream.cached });
     }
@@ -835,6 +875,9 @@ pub const LaneHost = struct {
     /// An idle backend driver takes a lone drafted request, including sampling when supported.
     fn loneFits(h: *LaneHost, job: *Job) bool {
         const r = job.request;
+        // Until it has per-request ownership/cleanup, the legacy lone driver is
+        // not a private path. Shared lane scheduling still admits this request.
+        if (job.secure_request) return false;
         const lone = h.lone orelse return false;
         if ((r.sampling != null and !lone.sampled) or !r.drafts or r.think_budget > 0 or r.loop_guard or r.call != null or r.structure != null) return false;
         h.lock();
@@ -845,6 +888,20 @@ pub const LaneHost = struct {
     /// Requests parked or woken (the lock held).
     fn waitingCount(h: *const LaneHost) usize {
         return h.ready.items.len + h.loading.items.len + h.deferred.items.len;
+    }
+
+    fn ordinaryCount(jobs: []const *Job) usize {
+        var count: usize = 0;
+        for (jobs) |job| if (!job.secure_request) { count += 1; };
+        return count;
+    }
+
+    /// Public telemetry excludes private work; scheduling keeps the full lists.
+    fn ordinaryWaitingCount(h: *const LaneHost) usize {
+        var count = ordinaryCount(h.ready.items);
+        for (h.loading.items) |l| if (!l.job.secure_request) { count += 1; };
+        for (h.deferred.items) |d| if (!d.job.secure_request) { count += 1; };
+        return count;
     }
 
     /// Send lone-driver tokens as they land; arrivals and cancellation return its stream to the lane core.
@@ -908,7 +965,7 @@ pub const LaneHost = struct {
 
     /// A prompt pass the broken pair stopped (or ran under an abort) fails with the pair's message.
     fn dropBroken(h: *LaneHost, job: *Job) bool {
-        h.pair_failed += 1;
+        if (!job.secure_request) h.pair_failed += 1;
         return h.drop(job, "the engine's rank pair broke; the server restarts");
     }
 
@@ -980,7 +1037,7 @@ pub const LaneHost = struct {
         defer h.unlock();
         h.live_tokens.clearRetainingCapacity();
         h.live_generated = 0;
-        for (h.admitted.items) |job| if (job.started) {
+        for (h.admitted.items) |job| if (job.started and !job.secure_request) {
             h.live_tokens.append(h.gpa, @intCast(job.stream.context.items.len)) catch {};
             h.live_generated += @intCast(job.stream.emitted().len);
         };
@@ -988,19 +1045,18 @@ pub const LaneHost = struct {
         if (parts) |p| h.kv_tele = p;
     }
 
-    /// Rotate unfinished prompts one compute chunk at a time. Admission, cancellation,
-    /// restore service and a decode round run between visits, including a lone cold start.
+    /// Text rotates by chunk; an image keeps its shared view until done or cancelled.
     fn fillBounded(h: *LaneHost) void {
         h.lock();
-        const job = for (h.admitted.items, 0..) |j, i| {
+        var pick: ?usize = null;
+        for (h.admitted.items, 0..) |j, i| {
             if (j.prefilled != null) continue;
-            _ = h.admitted.orderedRemove(i);
-            h.admitted.appendAssumeCapacity(j);
-            break j;
-        } else {
-            h.unlock();
-            return;
-        };
+            if (pick == null) pick = i;
+            if (j.request.images.len > 0) { pick = i; break; }
+        }
+        const job = h.admitted.orderedRemove(pick orelse { h.unlock(); return; });
+        h.admitted.appendAssumeCapacity(job);
+        h.image_yield = job.request.images.len > 0;
         h.unlock();
         const first_visit = !job.started;
         if (first_visit and !h.setup(job)) return;
@@ -1021,8 +1077,6 @@ pub const LaneHost = struct {
             return;
         };
         if (h.aborted()) { _ = h.dropBroken(job); return; }
-        // Every backend restores before its first chunk. A later prompt may now
-        // evict that saved entry without leaving this job with a dangling pointer.
         job.reported();
         if (!done) return;
         h.prefilled(job, job.began);
@@ -1067,11 +1121,14 @@ pub const LaneHost = struct {
 
     fn run(h: *LaneHost) void {
         if (h.enter) |e| e.run(e.ctx);
+        defer h.secure_cache.failed(h);
         while (true) {
             if (h.isBroken()) {
                 if (h.brokenStep()) return;
                 continue;
             }
+            h.secure_pause.poll(h);
+            h.secure_cache.poll(h);
             h.takeCancels();
             while (h.admitOne()) {}
             const decode_ns = if (h.core.fills() and h.hasFills() and h.core.runnableCount() > 0) h.interleave_ns else 0;
@@ -1117,6 +1174,8 @@ pub const LaneHost = struct {
 
     /// A failed round ends every stream it held, with the backend's error.
     fn failAll(h: *LaneHost, message: []const u8) void {
+        h.secure_cache.failed(h);
+        _ = h.core.backend.privateForget(null) catch std.c._exit(70);
         h.filling = null;
         h.lock();
         const jobs = h.gpa.dupe(*Job, h.admitted.items) catch &.{};
@@ -1483,13 +1542,15 @@ pub const LaneHost = struct {
 
     /// A backend error the policy names as a broken pair (`fatal`): the policy runs, its words as the cause.
     fn checkFatal(h: *LaneHost, e: anyerror) void {
-        const pol = h.pair orelse return;
-        for (pol.fatal) |f| if (f.err == e) {
+        // Invalidate admissions before an error can let a queued job save again.
+        h.secure_cache.failed(h);
+        if (h.pair) |pol| for (pol.fatal) |f| if (f.err == e) {
             var buf: [pair_why_max]u8 = undefined;
             const said = h.words(e);
             const why = if (std.mem.eql(u8, said, @errorName(e))) said else std.fmt.bufPrint(&buf, "{s}: {s}", .{ @errorName(e), said }) catch @errorName(e);
             return h.pairBroken(why, f.drain);
         };
+        _ = h.core.backend.privateForget(null) catch std.c._exit(70);
     }
 
     /// The engine thread's loop after the break: what waits fails; decoding streams step on within the drain bound;
@@ -1552,7 +1613,7 @@ pub const LaneHost = struct {
     fn failPair(h: *LaneHost, msg: []const u8, e: ?anyerror) void {
         if (e) |x| noteErr("a round failed while the streams drained ({s}): every stream ends", .{@errorName(x)});
         h.lock();
-        const n = h.admitted.items.len;
+        const n = ordinaryCount(h.admitted.items);
         h.unlock();
         h.pair_failed += n;
         h.failAll(msg);
@@ -1579,7 +1640,7 @@ pub const LaneHost = struct {
         h.deferred.clearRetainingCapacity();
         h.unlock();
         if (h.cache) |store| for (restores.items) |r| store.restoreCancel(r);
-        h.pair_failed += jobs.items.len;
+        h.pair_failed += ordinaryCount(jobs.items);
         for (jobs.items) |job| h.finish(job, .failed, msg);
     }
 
@@ -1937,6 +1998,7 @@ test "the service fence: never inside a round, a prompt pass's chunk or a graph 
 }
 
 test {
+    _ = @import("lane_host_secure_cache_test.zig");
     _ = @import("lane_host_test.zig");
     _ = @import("lane_host_tier_test.zig");
     _ = @import("lane_host_robust_test.zig");

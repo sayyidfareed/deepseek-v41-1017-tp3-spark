@@ -469,3 +469,109 @@ test "bounded image fill keeps later image and text fills exclusive through comp
         try std.testing.expectEqual(@as(usize, 0), target.lanes.count());
     }
 }
+
+test "a late image must preempt a long text fill without changing either answer" {
+    var cfg = try lanes.Config.init(gpa, .{ .exact_width = 8, .gpu_tokens = true, .hidden_rows = true }, 8, 7);
+    defer cfg.deinit(gpa);
+    const long: [32]u32 = @splat(3);
+    const short = [_]u32{ 1, 2, 3 };
+    const images = [_]api.Image{.{ .at = 1, .tokens = 1, .bytes = "synthetic", .rows = true }};
+    const short_request: api.Request = .{ .prompt = &short, .images = &images, .max_tokens = 8, .drafts = false };
+    var seen: Seen = .{ .short = &short_request };
+    defer seen.deinit();
+    var target: lanes.fake.Fake = .{ .gpa = gpa, .prefill_chunks = 8, .prefill_hook = Seen.hook, .prefill_hook_ctx = &seen };
+    defer target.deinit();
+    var clock: lanes.fake.FixedClock = .{};
+    var core = lanes.Engine.init(gpa, &cfg, target.chunkedBackend(), clock.clock());
+    defer core.deinit();
+    core.bounded_admission = true;
+    var host = api.LaneHost.init(gpa, std.testing.io, &core, .{ .lanes = 2 });
+    seen.engine = host.engine();
+    try host.start();
+    defer host.stop();
+    const request: api.Request = .{ .prompt = &long, .max_tokens = 8, .drafts = false };
+    try seen.engine.submit(1, &request, .{ .ctx = &seen, .event = Seen.event });
+    try seen.wait();
+    try std.testing.expect(seen.short_at.? < 8);
+    try std.testing.expectEqual(api.Reason.length, seen.reasons[0].?);
+    try std.testing.expectEqual(api.Reason.length, seen.reasons[1].?);
+    const want_long = try reference(&cfg, &long);
+    defer gpa.free(want_long);
+    const want_short = try reference(&cfg, &short);
+    defer gpa.free(want_short);
+    try std.testing.expectEqualSlices(u32, want_long, seen.tokens[0].items);
+    try std.testing.expectEqualSlices(u32, want_short, seen.tokens[1].items);
+}
+
+test "image preemption preserves exclusivity and text progress after completion or cancellation" {
+    const Traffic = struct {
+        engine: api.Engine = undefined,
+        images: []const api.Request,
+        cancel_image: bool,
+        chunks: [3]usize = @splat(0),
+        image_end: ?usize = null,
+        reasons: [3]?api.Reason = @splat(null),
+        crossed: bool = false,
+        text_turn: bool = false,
+        done: std.atomic.Value(u32) = .init(0),
+        fn hook(ctx: *anyopaque, s: *lanes.Stream, _: usize) void {
+            const x: *@This() = @ptrCast(@alignCast(ctx));
+            const i: usize = switch (s.prompt_len) { 32 => 0, 16 => 1, 12 => 2, else => unreachable };
+            x.chunks[i] += 1;
+            if (i == 0 and x.chunks[0] == 1) {
+                for (x.images, 2..) |*r, id| x.engine.submit(@intCast(id), r, .{ .ctx = x, .event = event }) catch unreachable;
+            }
+            if (i != 1 and x.chunks[1] > 0 and x.image_end == null) x.crossed = true;
+            if (i == 1 and x.chunks[1] == 2 and x.cancel_image) x.engine.cancel(2);
+            if (i == 2 and x.chunks[2] == 1) x.text_turn = if (x.image_end) |n| x.chunks[0] > n else false;
+        }
+        fn event(ctx: *anyopaque, id: api.Id, e: *const api.Event) void {
+            const x: *@This() = @ptrCast(@alignCast(ctx));
+            switch (e.*) {
+                .finished => |f| {
+                    x.reasons[@intCast(id - 1)] = f.reason;
+                    if (id == 2) x.image_end = x.chunks[0];
+                    _ = x.done.fetchAdd(1, .release);
+                },
+                else => {},
+            }
+        }
+    };
+    for ([_]bool{ false, true }) |cancel_image| {
+        var cfg = try lanes.Config.init(gpa, .{ .exact_width = 8, .gpu_tokens = true, .hidden_rows = true }, 8, 7);
+        defer cfg.deinit(gpa);
+        const text: [32]u32 = @splat(3);
+        const first: [16]u32 = @splat(4);
+        const second: [12]u32 = @splat(5);
+        const images = [_]api.Image{.{ .at = 1, .tokens = 1, .bytes = "synthetic", .rows = true }};
+        const requests = [_]api.Request{
+            .{ .prompt = &first, .images = &images, .max_tokens = 1, .drafts = false },
+            .{ .prompt = &second, .images = &images, .max_tokens = 1, .drafts = false },
+        };
+        var seen: Traffic = .{ .images = &requests, .cancel_image = cancel_image };
+        var target: lanes.fake.Fake = .{ .gpa = gpa, .prefill_chunks = 8, .prefill_hook = Traffic.hook, .prefill_hook_ctx = &seen };
+        defer target.deinit();
+        var clock: lanes.fake.FixedClock = .{};
+        var core = lanes.Engine.init(gpa, &cfg, target.backend(), clock.clock());
+        defer core.deinit();
+        core.bounded_admission = true;
+        var host = api.LaneHost.init(gpa, std.testing.io, &core, .{ .lanes = 3 });
+        seen.engine = host.engine();
+        const request: api.Request = .{ .prompt = &text, .max_tokens = 1, .drafts = false };
+        try seen.engine.submit(1, &request, .{ .ctx = &seen, .event = Traffic.event });
+        try host.start();
+        defer host.stop();
+        for (0..3000) |_| {
+            if (seen.done.load(.acquire) == 3) break;
+            try std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake);
+        }
+        try std.testing.expectEqual(@as(u32, 3), seen.done.load(.acquire));
+        try std.testing.expect(!seen.crossed);
+        try std.testing.expect(seen.text_turn);
+        try std.testing.expect(seen.image_end.? < 8);
+        try std.testing.expectEqual(api.Reason.length, seen.reasons[0].?);
+        try std.testing.expectEqual(if (cancel_image) api.Reason.cancelled else api.Reason.length, seen.reasons[1].?);
+        try std.testing.expectEqual(api.Reason.length, seen.reasons[2].?);
+        try std.testing.expectEqual(@as(usize, 0), target.lanes.count());
+    }
+}

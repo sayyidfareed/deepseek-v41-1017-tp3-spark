@@ -17,6 +17,11 @@ pub const Server = server.Server;
 pub const Config = server.Config;
 
 test {
+    _ = @import("secure_auth_test.zig");
+    _ = @import("secure_gate.zig");
+    _ = @import("secure_privacy_test.zig");
+    _ = @import("zero_free.zig");
+    _ = @import("secure_listener.zig");
     @import("std").testing.refAllDecls(@This());
     _ = @import("json.zig");
     _ = @import("fields.zig");

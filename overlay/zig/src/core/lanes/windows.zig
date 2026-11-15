@@ -14,6 +14,7 @@ const Stream = @import("stream.zig").Stream;
 const Value = ev.Value;
 const f = ev.f;
 const adaptive = @import("adaptive.zig");
+const ZeroFree = @import("zero_free.zig").ZeroFree;
 
 pub const Kind = enum { forced, copy, head, fill, none };
 
@@ -41,9 +42,11 @@ pub fn plan(e: *Engine, s: *Stream, copied: ?[]const u32) !Plan {
     var p: Plan = .{ .stream = s, .position = s.cache_len, .kind = .none };
     const queued = s.next;
     s.next = null;
+    var zero: ZeroFree = .{ .parent = e.gpa };
+    const owned = if (s.secure_request) zero.allocator() else e.gpa;
     defer if (queued) |q| {
-        if (q.tokens) |t| e.gpa.free(t);
-        if (q.parents) |parents| e.gpa.free(parents);
+        if (q.tokens) |t| owned.free(t);
+        if (q.parents) |parents| owned.free(parents);
     };
     if (s.force.items.len > 0) {
         const width: usize = if (s.drafts) @min(e.cfg.base_width, e.cfg.batch_rows) else 1;
@@ -154,7 +157,7 @@ pub fn probe(e: *Engine) depth.Probe {
 }
 
 pub fn who(s: *Stream) depth.Who {
-    return .{ .state = &s.depth, .draft_room = s.draftRoom(), .finished = s.finished, .forced = s.force.items.len > 0, .granted = s.granted, .stream = s };
+    return .{ .private = s.secure_request, .state = &s.depth, .draft_room = s.draftRoom(), .finished = s.finished, .forced = s.force.items.len > 0, .granted = s.granted, .stream = s };
 }
 
 /// Trim draft prefixes by landing probability to the shared width with the most expected tokens a ms.

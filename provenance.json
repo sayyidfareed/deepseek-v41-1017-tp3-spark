@@ -202,8 +202,8 @@
     {
       "path": "zig/src/core/engine_api.zig",
       "base_sha256": "b9ba89cee4044fa4a83c5a7ade5315b71ce7abc6fe25dc0d106d46199a7933da",
-      "deployed_source_sha256": "3caa7bffea092b05046676283854f3d2400d1a5d594eb59ff916c69c5769e857",
-      "export_sha256": "86996d14cfafb8cf0ccd5b271154b2145f5bdfccb73bd746eef0783ceffa2361",
+      "deployed_source_sha256": "523920dcd339ed91d9776b23318029a9490ddd274a8f29a94a05b1b52be79302",
+      "export_sha256": "f0701e3a86037ed1d6af870389a52521dd7e0ef120d832789cdb0d82847b1e0d",
       "notice_added": true
     },
     {
@@ -342,15 +342,29 @@
     {
       "path": "zig/src/core/lane_host.zig",
       "base_sha256": "77cc023e2e9bec42e52d781e388cdabc9e085a32b7b99fd47bcac5820b8056df",
-      "deployed_source_sha256": "ece38ee0174091b706e67c4e8b2ce0fa3052d3239954dfbfa99f7ae352a89c94",
-      "export_sha256": "6231bc01a5e2d785ef94d35c73896b95de42bbb34fe8795f2e69b2c32f7bbb9b",
+      "deployed_source_sha256": "c8e196e265f51f1fe454cfc9c398513d5e0dca697745fd459c8eff7163cf19f0",
+      "export_sha256": "6e60d14aeb8204275edbb112964c5fe7d6dbbe6c27d6ca63a521b3b2d9b16952",
       "notice_added": true
     },
     {
       "path": "zig/src/core/lane_host_fill_test.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "4c88374330f681dab0ec3c40894d7887da38afb828fec1ceaf5148e84dd2be06",
-      "export_sha256": "0a2821004806497437d3395e513e2401239255ceeb4fc2aec54f0ddd4c19024e",
+      "deployed_source_sha256": "c2b29184c8f7fb302ce8a3978e28b91221d26ee1304efe8fe934495e8f4c6a3c",
+      "export_sha256": "74361c1850515d0d8ba69a9f25334e9c144d8a8279ff13c529ba19ee23a3d524",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/lane_host_prefill_debt_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "1a6e5c83289da79e35530afa7cc8dcb365da819906ab41621d18d4d102f3f916",
+      "export_sha256": "b7e3ff2cd365b2016349ce97aff17923668cb83a108ca07644611b7d98f005a3",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/lane_host_privacy_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "2c89172f853c7e00e8676d016aec8ff67746f41a434d9b3e4e599281c055ea42",
+      "export_sha256": "73ab98d8c22a1fdd2674e90cd238c2b6115c9b68da9adda232307cf3595779c2",
       "notice_added": true
     },
     {
@@ -365,6 +379,13 @@
       "base_sha256": null,
       "deployed_source_sha256": "c9fd4bdbdae591fc4d0b2faac842cb2c689f500f2bc83be5664ce6f2cb79ce53",
       "export_sha256": "fab3a8eb3aa6890742dce5b8becc9e57255c9b2e5b90e41ef5b24a7000905830",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/lane_host_secure_cache_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "483357c0d10b1ccf5b61df03d4d140f44da0514edc4aa7c8480ee1a76cc1e6ff",
+      "export_sha256": "0ffaa54cd578230bdbcd13dfda505936a9cdbdb6130b8500bc0e1c642440c4ab",
       "notice_added": true
     },
     {
@@ -391,8 +412,8 @@
     {
       "path": "zig/src/core/lanes/backend.zig",
       "base_sha256": "cb950866ed6d3273cefb67635b8a75b65d48b9c5b8e633146b26b62d18103f36",
-      "deployed_source_sha256": "7d8683fcc802c160d890b1cfad94adffb16e2f6eb276948a3cf7ba3e713a725b",
-      "export_sha256": "b01f59492b2ab2353e6230eb6e943eeaaee76f3ad914d5f566ccbcba4714d720",
+      "deployed_source_sha256": "3a550b8b9e05201cffdb9fa5fbff44e644e5cce52887923b141f66b0dee10bc2",
+      "export_sha256": "6570f42f2fc658070a63e322b6ed542f1dcf46a94836f31e19ce79a43655e9aa",
       "notice_added": true
     },
     {
@@ -412,15 +433,15 @@
     {
       "path": "zig/src/core/lanes/depth.zig",
       "base_sha256": "3f988adf263b1de68c3512cef5fa39457516762e49dc53c1abb4c572f33cdf96",
-      "deployed_source_sha256": "a2987fe6dc1b7c04f5aac9e50af3812f84b50e904168ed211a272f9a28b0291f",
-      "export_sha256": "230a064ef7bd149236a2141bde35ba315700d4fce86f2871fbb959e99c17d35e",
+      "deployed_source_sha256": "33a21fb611433c24fff629d77a8f81efc49e0e674d65394b7cf1684c65cbf2b3",
+      "export_sha256": "19c27e5f3d22264000c2ff8709c62fa8c2b586f7a2bd6776900858b759c86eca",
       "notice_added": true
     },
     {
       "path": "zig/src/core/lanes/engine.zig",
       "base_sha256": "fb379e802a3b38da33114bb8fc9e33d21ca8a56b9401f1810c1e00cebacb6b5e",
-      "deployed_source_sha256": "3a3f9c9bae9da252da4c86407bd670b21094fdbe98c9244f7d4191c740d58ef6",
-      "export_sha256": "2f93fbdd06b69fccbf6a096b3a40fe471433e44b9db60082eef4d5308736033f",
+      "deployed_source_sha256": "2264ed6649d0f16d84d72493cbc74f598937ac272052f95a0469dc1afdd70c66",
+      "export_sha256": "0511de1aeadad4b708324bca9a94b79d42c9ba1fd09434c2504c99623efe3005",
       "notice_added": true
     },
     {
@@ -447,8 +468,8 @@
     {
       "path": "zig/src/core/lanes/lanes.zig",
       "base_sha256": "9375af3720e7d73526c1bda3cb20b4fe2e1691674f643875e64e874e46d8cd96",
-      "deployed_source_sha256": "79fd05378a15517b2dad150c7cb579506295a9966a5ffa438609f395e09d65bd",
-      "export_sha256": "86a1bfced2e1e4efd879070beb643c8278c7dad8c0d39f6bbf406af2947856ba",
+      "deployed_source_sha256": "27045d383d542c6656aa616d68c1c3caa61bcb0cae6832d669493e478b5c08f2",
+      "export_sha256": "fc86425eac3f67fde871b19652c9c7bf4ac78ef3cf56660976b8db076f026bfc",
       "notice_added": true
     },
     {
@@ -466,10 +487,17 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/core/lanes/secure_cache_ticket.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "5a36a41ef856d336e12c7d63d56107ae7f915623359956e3b738774631ff2bab",
+      "export_sha256": "a7e65a1edf49fb5bd91757ad7848fe84a2ad1d3598af23709f6a85568f3028bc",
+      "notice_added": true
+    },
+    {
       "path": "zig/src/core/lanes/stream.zig",
       "base_sha256": "aeb2c8f2a2ed4b237bb4f8337f72b6f0a77b60c1a8fb0b02f9f5d3885ad7c5cb",
-      "deployed_source_sha256": "997389c49fafd766fabd12d0176225f38ffa8010b5153575e5902c39af5bf3ef",
-      "export_sha256": "668cc1208f40a8cf7582425b2ae435a2d73677ff055c8d3d96c7510da323cc5c",
+      "deployed_source_sha256": "69f25afac17160378c56bf3d34f7db1d60248ea54bc50740607ef582872425be",
+      "export_sha256": "6ffc21d515f8c6188e7b8f11e0ac76eca5cafdecb62af759e31969f01f34f5a4",
       "notice_added": true
     },
     {
@@ -496,8 +524,15 @@
     {
       "path": "zig/src/core/lanes/windows.zig",
       "base_sha256": "21aede9885bb0d8129afdc4205f2541f195de6b964848961fc3de3176a270705",
-      "deployed_source_sha256": "c0b1ee652eee8a30f7112d53b25fe997a63a307b2a3d86780800e5c0b251af97",
-      "export_sha256": "71e5ac436877123670a7f9e1bd6faa8ae7eeddd68bfa51910cebe4246ef587df",
+      "deployed_source_sha256": "d0a960dd8a424363c7e023af3e7cda3ae151eabb5a11e0bf003ef161b83f32bd",
+      "export_sha256": "bf561d890c63cf8183934456a15728aa62627bb723b6a44bb57f346a271cc5fb",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/lanes/zero_free.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "ca3d359a80c3c2d283add081a50770cbe7f320056f683e622f01996cddb2864f",
+      "export_sha256": "907a83d61ee24e8af1f4671ffa07b90887e01c66d6b7bc9fa2b9258e496eb451",
       "notice_added": true
     },
     {
@@ -533,6 +568,27 @@
       "base_sha256": "ffcf279a324ad3a236fdb6aac3aed63ce295aa02dcd0037fc86d922dd19e5917",
       "deployed_source_sha256": "a0becb3e8d5156d03902983b9f37f6ac5f3dab44b29ea91039c9c59fa0e604d1",
       "export_sha256": "af9825287826eb57ca41a966bf49e8104bb2e103ee21ebc87d6b665d4556352f",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/secure_cache_control.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "14aefd2f2b05c57676e5a6f92c57d686f043b8c204c5c6f90835f5273815786e",
+      "export_sha256": "9240ca0e88169c4ef89e8cdc50821c51e1e5573891cc5fbbb73f8481b7fbd704",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/secure_pause.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "48b24799b9617a29e283f43fa0e76a86a69c44524c9585ff4ee059531a5958a9",
+      "export_sha256": "26ec52726e4d2ebace046162d61e5087ff7ef1e21bb02d2a61f02243fd81f46b",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/core/secure_pause_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "0a9ed69a36ac85758b56322c5bc0e6e3710c22c0aaf231e95828fad41d731ebd",
+      "export_sha256": "9c4646ff9936709b4097b6d2e25e9c9232a56d7d2a57e9331ce9a227441718b2",
       "notice_added": true
     },
     {
@@ -587,8 +643,8 @@
     {
       "path": "zig/src/core/template/template.zig",
       "base_sha256": "52c319874b4648cad3b2570731e772afa2ea0759d9370bb53b7888665a3d8e50",
-      "deployed_source_sha256": "2473e9dda00cf7c6948c77b00c2d3fb36862137c43bf72e5fca79d433c4b74c1",
-      "export_sha256": "aa22ed369768dc67a9bfe89d196b519fba0cf400f4ba85f6df0fa6125336d4ea",
+      "deployed_source_sha256": "0459ce0711f6db48fef2e2425af12cd9b10d05671928e9472a0b2bc779bf92fd",
+      "export_sha256": "55ffb99b226f9811b9b25c26cef5c3262c5ac320a18f2f38ee2db54f1c9bcf4d",
       "notice_added": true
     },
     {
@@ -608,8 +664,8 @@
     {
       "path": "zig/src/core/tokenizer/tokenizer.zig",
       "base_sha256": "622e87d7ee5f329d3bf38d4cb5689b1ad7986deb2a616a5296f46457ab020ef7",
-      "deployed_source_sha256": "a6990db4812e260ab0865c19b2947093d06bc477e4c8dd41f3eaece1c1a83220",
-      "export_sha256": "596e55883e634472bc3461ead1a3891dbb8d0fab1ccad143f775c088d4b60523",
+      "deployed_source_sha256": "95be1fd4324fb583a48ae9f9a7805d0bbc68cf17cf7af2456ec72fecaac92a98",
+      "export_sha256": "46792420ec592776008cb4d985cbb4d7e366075f0a8111a8ed46f7660ee20d99",
       "notice_added": true
     },
     {
@@ -634,6 +690,13 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/cuda/memory.zig",
+      "base_sha256": "16c63fdccdafacf74888c1c4a2bf2d6255e4fc3969da51dca2545259c7a00f2f",
+      "deployed_source_sha256": "f5e353fc093be8267e2008d6deaee53e8d7be6f73fa64bc63c5d90d2d1f3b162",
+      "export_sha256": "0af0ca9f6701c07bd70cf476624ed7e95c00fd6832a47d14326c2112ba9b4197",
+      "notice_added": true
+    },
+    {
       "path": "zig/src/families/dsv41/aot_check_main.zig",
       "base_sha256": null,
       "deployed_source_sha256": "9ae0131da79c7f62e86982aaea0fb3ab69eb0a2b299ee57c4b009aca2597d1bf",
@@ -650,8 +713,8 @@
     {
       "path": "zig/src/families/dsv41/comm.zig",
       "base_sha256": "ae6ad3c968ed5c3d7cc95c8132eb0a3659198ace4bc52315c00b8476031d35f4",
-      "deployed_source_sha256": "080a75656245779fee3c36333194d358e28606d70f281956e602b4f72e9ecf20",
-      "export_sha256": "5828378e0889e6f545a91759cc9587697453e2686043a94e1ce09d788da31e10",
+      "deployed_source_sha256": "39ac59e6f01b081725001d7a39f3b1691dbc1febba4c55309799c4dd3dd7b61b",
+      "export_sha256": "3755393fb14cff8228b7f34a42726ffe1ade172d2bb8c353ffedd9c8e3b8f435",
       "notice_added": true
     },
     {
@@ -662,17 +725,32 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/families/dsv41/device_arena.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "512cbd81a347c4424ff18f5924ead443c93c7d6fa2f93b284b0b6abc7c98b462",
+      "export_sha256": "b36cc74ff20c970fcadf2e4067f99e966fa6a43ed2c6db8d84536133aab0917d",
+      "notice_added": true,
+      "export_adjustment": "Remove one trailing blank line; source behavior unchanged."
+    },
+    {
+      "path": "zig/src/families/dsv41/device_arena_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "bc2e6c32c923c16fc1faacb697632d0a74ccdae0b061d9ef9793a547ea699f62",
+      "export_sha256": "7ca029dd392def29332e1f02692a89409e62468a857dffeb3d8aa0dec439ffdb",
+      "notice_added": true
+    },
+    {
       "path": "zig/src/families/dsv41/draft.zig",
       "base_sha256": "4eacd6fc9d2c697442ffbcbcd1c933d511691418acb872e83981ca63e33a503f",
-      "deployed_source_sha256": "815db70695902f4fdddd7149dd1f1f06293a05b39bb4e7719c113e540c89c378",
-      "export_sha256": "39b0878793f113ca5d504b5eeb36f1237239fa7362a39d2d138807f10d0acc84",
+      "deployed_source_sha256": "39b0607de6c319858c69ceb0377c5f279c8a9a5c38dabcb28720a538c022b864",
+      "export_sha256": "a1f6c31f7586abda8a28925a7257e2bcfc5574fab77b9ffb1be60b56221a3b48",
       "notice_added": true
     },
     {
       "path": "zig/src/families/dsv41/dsv41.zig",
       "base_sha256": "60ac10c33f9ebc9d61d78268d2fb921712cb2d8afc67442f1d9e91b785e9ac44",
-      "deployed_source_sha256": "25a2ebaf2b53c7df1c9d4978738d9610618484d992b3133904c0777ac77e3f5d",
-      "export_sha256": "7b471f49987fedb68073520243568b6d783a069a568fb4a18aeae7b61001be93",
+      "deployed_source_sha256": "232d3b1620428419f92bc37d67ae369f9e3878af2ae10f683828c4ee670b93b3",
+      "export_sha256": "96c398bb0cc76985258c62ab7c903a4a11af805f2ea660319b8ee10f6e82273b",
       "notice_added": true
     },
     {
@@ -685,15 +763,15 @@
     {
       "path": "zig/src/families/dsv41/engram_aio.zig",
       "base_sha256": "0602563e21889abb48411b7b2d08de3a4a58ce081499a0526979b0bba9d05307",
-      "deployed_source_sha256": "9c978282048d739c155fbf3442bd84b47ee854ae7cbf47be1d73b664e5198f75",
-      "export_sha256": "c1e9dfffe6035fbdc91fac6d4e5bac7956b5028ef31ead98b2f3d44e044afdd1",
+      "deployed_source_sha256": "4fb25296b02080d4996395d841613e546c5299dd9162cf0d46dcd74ad8df1833",
+      "export_sha256": "7d2d7988750892e2678ad7a706120dcf76e40bbe010cca9447b603b4acef9c3e",
       "notice_added": true
     },
     {
       "path": "zig/src/families/dsv41/engram_io.zig",
       "base_sha256": "e1e04ddd84b2e52d45b2b12aaa2f0dc8bd702b92771aabeb928c4f573d8dbacc",
-      "deployed_source_sha256": "dcda6ce9702b3daa6deee7705b843d8ebb7b32f40c83776d185a6f59ff539f61",
-      "export_sha256": "b3e1673b5d33bdb99d2ee7ebfb1f53570b3268ba0dbda3e4d68305b48f04df89",
+      "deployed_source_sha256": "bf74bd0b7409e8581b21a257ae43d84550a0ced5c1813d73f098a6d84d51cc0c",
+      "export_sha256": "fe4ca83bcb36a20eefac76fb2faf2fa30a8737759274c11240d27d57f748e255",
       "notice_added": true
     },
     {
@@ -762,8 +840,8 @@
     {
       "path": "zig/src/families/dsv41/lanes.zig",
       "base_sha256": "84ab9469613996041830762ea1cd249f15b48526869e399b7d6fcc2e183e8695",
-      "deployed_source_sha256": "90563de4fd42d856945ae6f3af3652f53458daffd474a9b5118ef50a1a5b48fd",
-      "export_sha256": "519912046747bacb0f2f7996db08287eb450c34f306ffbee3c04345dc02cf576",
+      "deployed_source_sha256": "2c530373ff4f085f94e87ee76f884ef076dc2af50c2cf70cd42ee4e9659f3af2",
+      "export_sha256": "f185d2a39ff28ecf84cd0d800c3e0e0fad5096682ccbaad3dd5bd6c0a4a8d3d7",
       "notice_added": true
     },
     {
@@ -790,15 +868,15 @@
     {
       "path": "zig/src/families/dsv41/model.zig",
       "base_sha256": "c7efa403134723295d9e6b3331afbbbb5af39363a0a9fd9d54f241f52044cc7e",
-      "deployed_source_sha256": "991ea858f506ab4635fef5e81ab6bae7561960d56ac98b7c389fd348ca699752",
-      "export_sha256": "991ea858f506ab4635fef5e81ab6bae7561960d56ac98b7c389fd348ca699752",
-      "notice_added": false
+      "deployed_source_sha256": "191feabfc1a3759d5ac05045c79898a9e77d9ec6279ddefa5dfc7fb4e5582fe4",
+      "export_sha256": "7a7a9b9b063c3292fdf03a8613a3e6fd0513774b790839954205ec7cf8093ab2",
+      "notice_added": true
     },
     {
       "path": "zig/src/families/dsv41/native.zig",
       "base_sha256": "00168b559f53cfce1d02d04cbb568e068a81cf130dcc48311dd088d4b01f60f4",
-      "deployed_source_sha256": "e0dd1244143c2b012ac8de3c22764bcbe2df2b3d5cb7dec16cff6f05f9362271",
-      "export_sha256": "f74b98134c602fd4c6e82346b47c1e29d5259bcc1fcf91f6bd978dbc70fde961",
+      "deployed_source_sha256": "9ef312983402d3cced75f3843eda64ac917a34c279b8521028a8e4bb696868a0",
+      "export_sha256": "9e9a26c386620ad3c4a7a7cdaa4ef31e5bcea903115c2f166bf423c2690a6fbd",
       "notice_added": true
     },
     {
@@ -813,6 +891,27 @@
       "base_sha256": null,
       "deployed_source_sha256": "4638195038c6cf0d6590a3ef7ed8703988db35d02fcb407a02041d89e0f9ff1e",
       "export_sha256": "7f11c82f116339bf2726db69f108942e7927bbc8c073bdb048950210aafc2b97",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/pil.zig",
+      "base_sha256": "f22f6edc0b51051c22230fc6218e1a49d7fd0b5f75068d8aebbce730a9a1de92",
+      "deployed_source_sha256": "e843e01928af844e479936430ea784234b1874798021342f140ff0faff6f723c",
+      "export_sha256": "cea4a83be7ccbf09d2409ce73803110462440d678e216cdafaeb38f7c163079f",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/pillow_api.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "8f1c1526a6d4ad70b8f2141b38bd321fa33a7deea017e8d7826536584718e273",
+      "export_sha256": "646a5d11281d4a8cd9045840d9d9d0c11ab5e2b8885e05c791f5b077aeb8ce97",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/pillow_decode.py",
+      "base_sha256": null,
+      "deployed_source_sha256": "06bd1b0336a056e350c600aa2ff72218c48b0274da77017ba885599cf45e9634",
+      "export_sha256": "025c1c6d837361920f21a327e919986b2b177e728d292ff6b065bba5e016e77a",
       "notice_added": true
     },
     {
@@ -853,9 +952,9 @@
     {
       "path": "zig/src/families/dsv41/prompt.zig",
       "base_sha256": "a506f9f2dcc15e5ae07c7cd91dcde582377332fc4647717b894b1fd5b9a95fd6",
-      "deployed_source_sha256": "35aeaf4852fdf59a627cfc89096f7820397c95524c906ffefac8b07524c2a401",
-      "export_sha256": "35aeaf4852fdf59a627cfc89096f7820397c95524c906ffefac8b07524c2a401",
-      "notice_added": false
+      "deployed_source_sha256": "df77d9a733f26394685143ae969517666560ffc6ccea07c36e92fdf0618c52e5",
+      "export_sha256": "d91951c923c0b53c897086109bde9a388d74913563402be8ebd59210cebc9e42",
+      "notice_added": true
     },
     {
       "path": "zig/src/families/dsv41/prompt2d.zig",
@@ -895,15 +994,15 @@
     {
       "path": "zig/src/families/dsv41/redraw.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "ace1c786149a911d6f99550cd1ebf117a9d5709dadd8b0c932bb74ff6f11f8d3",
-      "export_sha256": "5c9e47ec69eb656c6cd702758f21034be565637c1e6941ba6877891dbf478e69",
+      "deployed_source_sha256": "ad7457aba78caca5a86f4ab1c9fd306e35091b3b5217e5de55f541b6ea81419f",
+      "export_sha256": "335ffd682bdae3a2209e198a5c82627cdaf5cfce7ab338a7be60f3fbdbccf934",
       "notice_added": true
     },
     {
       "path": "zig/src/families/dsv41/round.zig",
       "base_sha256": "0192e9b4745c2ba52277dc410c7bc3ddb76304c3d821e6df11210d8c8ad7dd50",
-      "deployed_source_sha256": "49f438b8913d2b99385975cf0c5a8842d0f164da41807c21266a9db0760a1311",
-      "export_sha256": "d89da7a40c3ea36e73bd74dd1b324856242441c13411e6f581266942c96c6f84",
+      "deployed_source_sha256": "8871512a10ab82f8ea4d729f2c9493a727dac285625b4100abcf91204045b5b9",
+      "export_sha256": "0d4d9aa9099fb67eb6562230f1f7e919a8ad59229ddc95f0b936f833fcbf9a3d",
       "notice_added": true
     },
     {
@@ -925,6 +1024,55 @@
       "base_sha256": null,
       "deployed_source_sha256": "76de254f48aa2a05640a40ef45092e0cbfa7bc81fb132c3ae493ebfb05974bb7",
       "export_sha256": "d0a0596f91f40c926ecc852a0dff090097a28907cd7e91ba0e8d1e70181fe70c",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_cache.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "8825a6b5f56b4b366d35179ec3bce39c938787bb008cb875fed0087edbe50a61",
+      "export_sha256": "bdd9a1f9c3549205b8e3c810084f774771550fa16b02034a4c87d6e17dcdaa0e",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_cache_cluster.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "8e7f22f26ff1350f41e4df4b600ecfd66f379bed6e616d0a07b42c5c917735fc",
+      "export_sha256": "ce3672f970649b80447a3ebfbc55a75c2ec9a35849eca5544bf7793dca9615de",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_checkpoint.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "4347e1be74500c5ba01b4123b1cd32831f17994f56054e8ab39e9adc76ea54ab",
+      "export_sha256": "62ed3701073d3807492a2911ac3986a1c3932d834b5fbf11ca34fb11ab1ef162",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_cluster.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "7dfa35ed9cca7e87ca6c235b8740a21dcc5cec8aaa55c2578abc61ae7b4d98e0",
+      "export_sha256": "e9760e045031d9e49cdbd3c54abbbd54f7d591bc63eb5b9b85bac2d1a98b5a7c",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_extent.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "385a70a6d4afca6c78355ec89ef6f1794bc5b9ff913297cac8cdb5a755119221",
+      "export_sha256": "d0be9837ce0615a62b086bfc9acb2db6d1acdb3d273d8e99c14135981b9cc83f",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_policy.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "454d10040862b7f9c194755afe1d551c14f4195b7269a0c0c90a3f2666aeaa36",
+      "export_sha256": "3259665eb3165636a5981260ff08862be284ff688ae72f61037cbbdf0d147b27",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/families/dsv41/secure_state.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "af5fbc8b81fb8dc56f94f5edfeab938baad5a3d5d8dd8f99a599f09d93820379",
+      "export_sha256": "bf954d26e0d2d3c2b2d7142f3f76861585ff8dee337b9d934a752c06277d15d0",
       "notice_added": true
     },
     {
@@ -958,8 +1106,8 @@
     {
       "path": "zig/src/families/dsv41/smart_graph_controller.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "6711c7e6b94c759845204ebe6f471f9a3a8722b1dcbe189cd993563efd3e1cae",
-      "export_sha256": "12e6d1517e8e36217b128460e48dfb78a9ccdae97285e145232bbf5389f97493",
+      "deployed_source_sha256": "0a6f977cc1bf83170404635d5268538a1f19bc4fe1f2407d7071032b73f46365",
+      "export_sha256": "088fe3762befa1f11ad5d7f70a3bed6658238399bd264df64bce00adc0335e1a",
       "notice_added": true
     },
     {
@@ -984,6 +1132,13 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/families/dsv41/smart_graph_private.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "1712b5c9293a14598344bd40502468c151a2e7fb1afa39b6ca492df7327837b3",
+      "export_sha256": "5e9e225e01ec730ed6cdc753766f967b3a1bebe6ea906a8d5f3c9a87722e7f8b",
+      "notice_added": true
+    },
+    {
       "path": "zig/src/families/dsv41/smart_graph_protocol.zig",
       "base_sha256": null,
       "deployed_source_sha256": "2db96fd66e62200336a40b27bbe8c64405c5e1110e57dafb88d51f15fc764ffa",
@@ -993,8 +1148,8 @@
     {
       "path": "zig/src/families/dsv41/smart_graph_runtime_test.zig",
       "base_sha256": null,
-      "deployed_source_sha256": "11d94e8c0981a5f5951985c5ee902759af1ab4257375e8c0774485f94e6bb3c9",
-      "export_sha256": "99db1d8026f4de6cedeb563c0c1ae4213982ddfb36f265ec9479b167e7a03c32",
+      "deployed_source_sha256": "6ccff2571dd1ba656bf167934fcc4082921526639eadd12acd1ad32699cb714d",
+      "export_sha256": "35b2403d9b12a648eb01c16f520891b20d15d225c7eb39b60d364442f4e3426d",
       "notice_added": true
     },
     {
@@ -1054,6 +1209,13 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/families/dsv41/vision.zig",
+      "base_sha256": "5defb5e23c1b7788908d34ea45878e9adb69d92c38ff9e3ce6766eb6d1113ff0",
+      "deployed_source_sha256": "67b3723f066760e9d9aa3068bd728050eb3e506d41e7347736d1851c3d249def",
+      "export_sha256": "5ab7375100bc1769731d8cf0a2bdc5a53586ea28781fd9781aa20fd60e4ba406",
+      "notice_added": true
+    },
+    {
       "path": "zig/src/families/dsv41/weights.zig",
       "base_sha256": "7169032edb65bd8403b0365c477ee04f3427a029a773c66deaacc96baf661949",
       "deployed_source_sha256": "fbd107328b62f4102ad800e95611970698edd77eeb7632d5ce2c14b6e52db4b4",
@@ -1063,8 +1225,15 @@
     {
       "path": "zig/src/native/cuda.zig",
       "base_sha256": "c05d3d01a928b773e49212ec2743b621a99e6031ffe9b03250b9eee432edcb1d",
-      "deployed_source_sha256": "b891c7d2f721f00b76730b29e9b127f24946ab3f89947ed1e5b791d735c9d790",
-      "export_sha256": "46a79960032d8a68ab7f9c195946a93e81742fd5e250a528fd0941ed6c661028",
+      "deployed_source_sha256": "3769ce07dd460ad09fb73da19cc442d33bda3bca76022e4ef832682ed0c85a5a",
+      "export_sha256": "fb27e04f905845377ff001e6848fa047a830b6bb9b7f155fffc66aa8359ef540",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/native/cuda_backend.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "90c8ea3d2975eeff34217c46371af3d2e7c055993a97cffaf386e751254aac75",
+      "export_sha256": "ff702c694acb9e4acfd3bb9f913c81b6a0b4cd5b017fb0128a5805605816a4ad",
       "notice_added": true
     },
     {
@@ -1072,6 +1241,13 @@
       "base_sha256": "cd415b3df9b1976a2945402099616f5c8e08226734818d11461fe72c312050c9",
       "deployed_source_sha256": "0c0eb2a8275647705089bb5f54e1945dfa66614beae0e594f6cb06c7d86d7e29",
       "export_sha256": "c296ad2e76cb5f0f9c189263bb768149a1008f02f132c4eeef8997862d82f636",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/native/secure_router.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "e46fe790a9db622c2c237cf5898fe21d7adaba65d8a463d74548f70ab3d55791",
+      "export_sha256": "3c58ce6d43216297eee42311c6207ffe9a10bf4f503caec64a49eeeb3f5c9482",
       "notice_added": true
     },
     {
@@ -1089,10 +1265,17 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/server/auth.zig",
+      "base_sha256": "8be7f3bc83881268d79081f12378386a1959c3772b107d10ab3a3555299e792a",
+      "deployed_source_sha256": "0ef4e1cb57c951e36c62f0dbd24c1598fbbc1aa0746f70683aca50b6daa1c09a",
+      "export_sha256": "9149968221037a5dc1b4bc0e1aa86a449b56b94313bbc50a1cd4bdcedd4b1fef",
+      "notice_added": true
+    },
+    {
       "path": "zig/src/server/chat.zig",
       "base_sha256": "7b5c86f7389b30d9801e03a70f16b07f826b243ce21f8a5119799e30d421e724",
-      "deployed_source_sha256": "a1bb782794997f7c1157312f033c96e4547188d137a6818e821ddcdde8bf775f",
-      "export_sha256": "045309df133b3ed2fbc29cc379495bcff3429da7cc3b459c33585169edabee3e",
+      "deployed_source_sha256": "90a7626752e3587473d2aadead65f11812db2551fac99e26f92e7076f9e2865e",
+      "export_sha256": "a9d0f34c5002efa1efb809d82ac8f72e1a7c1900befa15db64a72fb5fbf4ae75",
       "notice_added": true
     },
     {
@@ -1147,8 +1330,15 @@
     {
       "path": "zig/src/server/hf_text.zig",
       "base_sha256": "f33ae4bec55cb268d254994cd26875a02dbc1b2ac274ede27cd2a8e20b515728",
-      "deployed_source_sha256": "7cf8f2fc656909d11cf283f314d17c62c4ece1ef185576f0bc543a90dadc39a1",
-      "export_sha256": "d735fc73d121c15117fa0157a2873e4dc7ae5ced8631794cdbb3d6c2c40f4b3e",
+      "deployed_source_sha256": "27f93f390da846e597a79586e444b7084bb942526b7c03846cfb317ec4d796cc",
+      "export_sha256": "19f0b407ccb09d9e9e7ac9ac0e6a9d7b1f30c95e6e352c7cfa0f8bec1e4cbd4b",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/server/http_conn.zig",
+      "base_sha256": "b213574a58fb51b199a768466f493dc2490317169f059a2087f9ed19f59196f2",
+      "deployed_source_sha256": "fd6919dd3214a7f4966d700708421e0ebbd85c690dfd7437ebd4b2305d817f09",
+      "export_sha256": "a106db1a1bbef6831fe843460eb316f1743fbae0f68703dd481afd412c61f21e",
       "notice_added": true
     },
     {
@@ -1182,15 +1372,15 @@
     {
       "path": "zig/src/server/model_text.zig",
       "base_sha256": "ac2ad73b942ae1c2363f3afde9fc0d0a73ab273643a184c698960d673bae11cc",
-      "deployed_source_sha256": "13da3319e975aec0cf7206788b0add13b62a794299f5b0795ae4b12096f9c2c1",
-      "export_sha256": "f66c26c35ad0827e1e37b86d5cc75a7686dc4b3f726aded486f4bb06c509e767",
+      "deployed_source_sha256": "5f8d4a27d5c6c9455477b7c5638fd09dd0ac422f0bb079b05e40a9a1db1c180e",
+      "export_sha256": "4f1b904f957b67a81fb19a633aa48af1460b92b72b59e53311d95889425aa34d",
       "notice_added": true
     },
     {
       "path": "zig/src/server/openai.zig",
       "base_sha256": "0aeff79ecaa1a1134d57831c8988d5f642eb6f695599c88031d8c220d4725479",
-      "deployed_source_sha256": "e4317286b5f42b5a157203227c4896ff95e09a6f97c318d4a47ae7f691f98798",
-      "export_sha256": "b3aeac7b3064648829108263bfb134f275e178c072c50e59cabc9a4039fbd3ee",
+      "deployed_source_sha256": "e108b02ae83e8c824542a9f94c6e4c9d084173130034839a8814697af408755b",
+      "export_sha256": "82d1d759b4b49927c416d0e0e0f4ba9669b8b6e8594589bbbbc28c74d9e73511",
       "notice_added": true
     },
     {
@@ -1238,29 +1428,72 @@
     {
       "path": "zig/src/server/root.zig",
       "base_sha256": "864f0bd64385ca32be8b6276c2e746e49a20bc86a0d04b2f4baed63b32369997",
-      "deployed_source_sha256": "22e2e68ed4396c364cd8795aee37b940215245e85c41ea8e033dd045512f490c",
-      "export_sha256": "a67a0d414d188977e25e2b320239fe4bf636be3a8801da40df88ae5b61e89020",
+      "deployed_source_sha256": "59ea51b274879d215578e932cf7b94a5d26fa2b0fe925dcae5ae7cbaf5629ae0",
+      "export_sha256": "da093af1fbc4172fa3e5073e881d0191b22d0ff12ec76789bbcfddb7355c4957",
       "notice_added": true
     },
     {
       "path": "zig/src/server/routes.zig",
       "base_sha256": "33c0578d68b53a5e1a8b602a7b540514a1cce5110f1d0db6b3ab0e605a6dc420",
-      "deployed_source_sha256": "c203f28595eded2001185a947eb0b6ba091e889f822be386240dc95f7e0e13b1",
-      "export_sha256": "2e54e6b50b952394b654b0ea3942cf236e1b8a19846a8a8776ee2dcb2d6b636c",
+      "deployed_source_sha256": "5202c533e754240d8619efa3a0f0cbb6187773b96d7196bef3ee3fac4ab4130d",
+      "export_sha256": "77883f0c083993b45cfbb54bcabb479d84f927c44b20c13bd994ecdd41282f79",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/server/secure_auth_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "cabf7c2e6b3b481133df678b65161a10d17e576352b36f31321f5560e3305a1b",
+      "export_sha256": "b6a03412a5657d901e8d58a2a107f7c53d99259a1a56b1ef32a7ae883db906b5",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/server/secure_cache_scope.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "58b0017d390fbb34beb690829ecccc9fc7194d15b12b77817078b7193e4640d8",
+      "export_sha256": "2c58b63b82f5fc8a758e507e1eff75dcb8cad11a3a15df6304d1a64e71d8c82a",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/server/secure_forget.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "c774ca385930facb20b8950d8de08490312bb4c50cced7c20fc65f3c75fd6b72",
+      "export_sha256": "eb3d16f52c046111e367154c3cd7944e9cb310d002c91a0f82c21d1c3524b00b",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/server/secure_gate.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "027025a8847f76c3f49ea9924004ca99da3feb5637d28e74e368c65d68fdde56",
+      "export_sha256": "c596053f20eb00be326e36d272ef89838aba9c8087dbf331ff1ee1df3e112248",
+      "notice_added": true
+    },
+    {
+      "path": "zig/src/server/secure_listener.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "3de4cbfda1c4d3f2b62d152aac5ad2528bc33297cd5d140d6b236c53a3a375fc",
+      "export_sha256": "da8ea2435979f87d07c6f978b4285375c7447b189c0a6d5bff283b75557f6e02",
+      "notice_added": true,
+      "export_adjustment": "Synthetic network test addresses replaced with generic examples; no serving behavior change."
+    },
+    {
+      "path": "zig/src/server/secure_privacy_test.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "cffc30e53a6946e81e411420847b2f15d8382d5b6fba7aebd207e4ff042b96dc",
+      "export_sha256": "58b0bcd632f78597a1f89ff573fe06bff7c75773937fdcd2e2516214a6e72e99",
       "notice_added": true
     },
     {
       "path": "zig/src/server/serve.zig",
       "base_sha256": "e6ab3a510d66f70cf9c6b965e0e026d78a55309683a66e5f9e6ae8d5efe541ac",
-      "deployed_source_sha256": "839dd896d8dfa232669a6ba8b2ee72e02422e0c0fb8e20e8aa8b1b5682aefbe4",
-      "export_sha256": "148034f9ec2df7ca9baca4c1870a03dd7117fdee9b49f62b9569a29906c96478",
+      "deployed_source_sha256": "068c3f1c1c657f4821980acecdf64a951da846086ef2ef061a50aa10173d4d6d",
+      "export_sha256": "0921cc9dd6f01756176e4768d19692c53c1b02f8aae77a1247f3f2959b6e1efd",
       "notice_added": true
     },
     {
       "path": "zig/src/server/server.zig",
       "base_sha256": "778f820f7912d7d026c46114a76e82fe0ef133eeb2ebd441e4d48a89b6e723da",
-      "deployed_source_sha256": "4bd5af8d0e104cd5740c686c41a9f1e53f3b6039ddeab107267617342100d010",
-      "export_sha256": "1f24b171e9aade33531f2f75c2246c107e9ca00ccfb2fac91ab0cb01a16c3c6b",
+      "deployed_source_sha256": "cf2edb7068bf3d04c605b58a46a5ab45d96ffbfaa0e6ab62a8a3f1105ea090eb",
+      "export_sha256": "e4b0f40df4faeb247e605001812e2d6ad8eb9d14f2a239586db1b4d79ac37b7d",
       "notice_added": true
     },
     {
@@ -1369,11 +1602,39 @@
       "notice_added": true
     },
     {
+      "path": "zig/src/server/zero_free.zig",
+      "base_sha256": null,
+      "deployed_source_sha256": "6a16ee19c218b9d36d70269352f3c35994999f17d37bbae585974265b8664ec8",
+      "export_sha256": "c8ebc593f9df7b1861eebcb10c553d50749d23b4b9524f80820acac89f7885d1",
+      "notice_added": true
+    },
+    {
       "path": "zig/tests/server/build.sh",
       "base_sha256": "cdb2e3ba2c2f7152b3b401ab591df1682e48c938251165451e9bed4cba19223a",
-      "deployed_source_sha256": "b050ecf3f8b8bfa6d9343045002d3cd1a632282ed9877054eace05f00506aff8",
-      "export_sha256": "b050ecf3f8b8bfa6d9343045002d3cd1a632282ed9877054eace05f00506aff8",
-      "notice_added": false
+      "deployed_source_sha256": "25f5fcf82910d924c95d16bd8ac78960fa5c173c3fd3551eb2d023c10f632f6c",
+      "export_sha256": "83fdae13daee3c38b27446b0326974d9245470b88f11b538a096b01409b6e0fd",
+      "notice_added": true
+    },
+    {
+      "path": "zig/tests/server/fake_engine.zig",
+      "base_sha256": "da52cc9c365205844f9927e8e9981d44e413869a969f1102c59439511d2693de",
+      "deployed_source_sha256": "d81732d66794acae33ef1eb7ced30cd34f023f1c473c220433991648086a0348",
+      "export_sha256": "4bd217481e8a53f5730a3a612c67335ba5273c681f08738b41c94702ace541a0",
+      "notice_added": true
+    },
+    {
+      "path": "zig/tests/server/fake_serve.zig",
+      "base_sha256": "63bce9aba615f6f5fd2cc07898f825bb3f4c74707d6a19a9096b95612cf12e4f",
+      "deployed_source_sha256": "6036fcc815cc8623b03831891310ff023d5d4d83dabe90651fbc34fadaab7fed",
+      "export_sha256": "99e02150b58e6d50c50f86888562269917546c2c480cd2977751b94704b6626a",
+      "notice_added": true
+    },
+    {
+      "path": "zig/tests/server/fake_text.zig",
+      "base_sha256": "193e1fb5fa64ffb8aa52a7d76ec6ea8036cb3c4c25cc68c536bf3f912c60551c",
+      "deployed_source_sha256": "534b3ebbfffb6121a3e721163079cacfe33540d969b879e76a4d1397d157339c",
+      "export_sha256": "5f9b59e760460dffd3108aaea8c8171f3233c26f7fccfbc302bd303f3cec6138",
+      "notice_added": true
     },
     {
       "path": "zig/tests/server/golden_check.zig",
@@ -1465,20 +1726,36 @@
       "path": "tools/kernels/exl3_linear_wc.cuh",
       "input_sha256": "b83ffd783e2908f378df3c17afcd83dc2d5c1bf3a17faf9be658442f89f8f261",
       "export_sha256": "e78b24fdd3c050d9d67c905624fb12de366f9f566596157a3211ea74cb765a16"
+    },
+    {
+      "path": "tools/export/patch_rank.py",
+      "input_sha256": "529dd194aa761ad9728d5e27d52a05b9ef49752ed7650814f1f33a5d0cdb5cf0",
+      "export_sha256": "bb9b9343d407a5b1b4e1bf2236b9b3013abd8babc8852766b7fa3777d29c8da9",
+      "export_adjustment": "Portable sibling exporter imports and exported-source pins; synthetic tests only."
+    },
+    {
+      "path": "tools/export/test_patch_rank.py",
+      "input_sha256": "e522ae489ad8ce3a2dcb25381941507c46059df00a5ce33ec316fbf76e592b34",
+      "export_sha256": "153823f34f87f381c5f19536639bfb0bc1f36f99d130cea789d406a981309427",
+      "export_adjustment": "Portable sibling exporter imports and exported-source pins; synthetic tests only."
     }
   ],
   "qualified_update": {
-    "status": "GPU-qualified source update, November 10, 2026",
-    "change": "Engram prefix reuse and bounded read-ahead; restore polling deadline; completion fence and 1024-row competing prefill with checkpoint realignment",
-    "files": [
-      "zig/src/families/dsv41/engram_lead.zig",
-      "zig/src/families/dsv41/lanes.zig",
-      "zig/src/families/dsv41/model.zig",
-      "zig/src/families/dsv41/prompt.zig",
-      "zig/src/families/dsv41/spill_tier.zig",
-      "zig/src/families/dsv41/spill_tier_test.zig"
+    "status": "Retained installed TP3 source, November 14, 2026; public packaging not GPU-qualified",
+    "changes": [
+      "In-process CPython/Pillow JPEG and WebP decoder; no fork or exec",
+      "Image admission and text resumption fairness with regression coverage",
+      "Secure mixed-serving and scoped RAM-cache engine primitives, disabled in the public launch profile",
+      "Portable optional attention-only Keys overlay preparation preserving draft tensors"
     ],
-    "qualification": "385 native CPU tests passed in retained validation. Matched 320K cold-image/streaming comparison and normal-to-normal restart disk-cache reuse passed; 18 route and 15 key-policy checks passed. No universal historical slowdown-resolution claim.",
-    "scope": "Exact Mia 1017 EAQ 2.9 weights, streaming, C12, pool 6400000; no graph-policy or Owen compute-kernel port."
+    "native_validation": "Retained image-repair validation: 125 core tests and 202 server tests passed. Synthetic image wait 42.9 to 1.8 seconds; performance tradeoff recorded in benchmarks. No new model run for this publication.",
+    "scope": "C12, shared pool 6400000; current deployment used the optional matching Keys overlay. Hardened secure host/runtime deployment is not packaged or qualified by this source export."
+  },
+  "optional_attention_overlay": {
+    "repository": "drowzeys/keys-DeepSeek-V4.1-Flash-1017-Abliterated",
+    "revision": "0bdc2036113c4fdda38ef6005b3cbc0bc0dfa0f0",
+    "file": "exl3_wo_b_l10_35_mia29.safetensors",
+    "sha256": "dcefb4a735f4985e4a5097cad69a059d85453f3bba148af3fc98269c7ee1ff7c",
+    "scope": "104 source attention tensors; 78 native slices per rank; preserve all MTP tensors; obtain access from upstream; no weights redistributed"
   }
 }

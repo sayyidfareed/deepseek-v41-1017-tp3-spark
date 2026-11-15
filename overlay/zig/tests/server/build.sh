@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Modified for the DeepSeek 1017 TP3 integration; upstream copyrights retained. See CREDITS.md and provenance.json.
 # Builds fake_serve and an engine-less tensorfold-native into zig-out/server/ (ZIG overrides the compiler, OPT the mode).
 set -euo pipefail
 zig="${ZIG:-zig}"
@@ -15,6 +16,6 @@ core=(--dep lanes "-Mengine_api=$root/zig/src/core/engine_api.zig" --dep grammar
 "$zig" build-exe -lc -O "${OPT:-ReleaseSafe}" --dep server --dep engine_api "-Mroot=$root/zig/tests/server/fake_serve.zig" \
   --dep engine_api --dep tokenizer --dep template "-Mserver=$root/zig/src/server/root.zig" "${core[@]}" \
   --name fake_serve -femit-bin="$out/fake_serve"
-"$zig" build-exe -lc -O "${OPT:-ReleaseSafe}" --dep engine_api --dep tokenizer --dep template --dep native_engines --dep build_options \
+"$zig" build-exe -lc -O "${OPT:-ReleaseSafe}" --dep engine_api --dep tokenizer --dep template --dep native_engines --dep build_options --dep checkpoint_cli \
   "-Mroot=$root/zig/src/server/main.zig" --dep engine_api "-Mnative_engines=$root/zig/src/native/none.zig" "${core[@]}" \
-  "-Mbuild_options=$options" --name tensorfold-native -femit-bin="$out/tensorfold-native"
+  --dep native_engines "-Mcheckpoint_cli=$root/zig/src/cli/cli.zig" "-Mbuild_options=$options" --name tensorfold-native -femit-bin="$out/tensorfold-native"

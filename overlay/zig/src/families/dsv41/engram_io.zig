@@ -217,6 +217,7 @@ pub const Pool = struct {
 
     fn work(p: *Pool, j: *Job) void {
         var bounce: [3 * dio.alignment]u8 align(dio.alignment) = undefined;
+        defer std.crypto.secureZero(u8, &bounce);
         while (true) {
             const i = j.next.fetchAdd(1, .monotonic);
             if (i >= j.ids.len) return;
@@ -255,6 +256,7 @@ pub const Pool = struct {
         if (out_w.len != ids.len * t.row_w or out_s.len != ids.len * t.row_s) return error.BadSize;
         if (ids.len == 0) return;
         var job: Job = .{ .t = t, .ids = ids, .out_w = out_w, .out_s = out_s, .direct = direct };
+        defer std.crypto.secureZero(u8, std.mem.asBytes(&job));
         p.mutex.lockUncancelable(p.io);
         p.job = &job;
         p.gen += 1;

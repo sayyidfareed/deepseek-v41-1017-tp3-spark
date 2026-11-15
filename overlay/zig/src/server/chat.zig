@@ -23,6 +23,7 @@ pub const Prompt = union(enum) { text: []const u8, ids: []const u32 };
 
 /// What a route hands the reply: Python's chat() arguments.
 pub const Input = struct {
+    secure_cache_ticket: ?*api.SecureCacheTicket = null,
     messages: Value = .{ .array = &.{} },
     tools: []const Value = &.{},
     prompt: ?Prompt = null,
@@ -197,6 +198,8 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
     const draft_field = f.get("draft");
     const drafts = srv.config.use_drafts and !(draft_field != null and draft_field.? == .bool and !draft_field.?.bool);
     var request: api.Request = .{
+        .secure_request = srv.config.secure_request,
+        .secure_cache_ticket = if (srv.config.secure_request) input.secure_cache_ticket else null,
         .prompt = rendered.ids,
         .images = rendered.images,
         .cache_key = rendered.cache_key,
@@ -250,9 +253,9 @@ pub fn generate(srv: *Server, cx: *Cx, prepared: Prepared, sink: ?Sink, gone: an
     if (gone.check()) return error.Cancelled;
     var stop_hook: StopHook = .{ .srv = srv, .stops = .{ .strings = stops_opt.strings } };
     if (stops_opt.strings.len > 0) request.stop = .{ .ctx = &stop_hook, .check = StopHook.check };
-    var box: Mailbox = .{ .io = io, .gpa = srv.gpa };
+    var box: Mailbox = .{ .io = io, .gpa = srv.requestAllocator() };
     defer box.deinit();
-    const id = srv.next_id.fetchAdd(1, .monotonic);
+    const id = srv.nextEngineId() catch return cx.fail(.other, "the scheduler request ID range is exhausted", .{});
     const submitted = nowNs(io);
     if (srv.keepalive) |k| k.begin(); // the GPU is busy: the idle ticker holds its commits
     defer if (srv.keepalive) |k| k.end();
@@ -270,7 +273,7 @@ pub fn generate(srv: *Server, cx: *Cx, prepared: Prepared, sink: ?Sink, gone: an
         gen.loop(gone) catch |e| break :blk e;
         break :blk gen.finish(cx, prepared.prompt_len, received, submitted, thinking, effort, prepared.sampled, prepared.drafts);
     };
-    if (result) |_| {} else |e| logEnded(input.id, e, cx.message, prepared.prompt_len, gen.collected.items.len, seconds(nowNs(io) - received));
+    if (result) |_| {} else |e| if (!srv.config.secure_request) logEnded(input.id, e, cx.message, prepared.prompt_len, gen.collected.items.len, seconds(nowNs(io) - received));
     return result;
 }
 
@@ -287,7 +290,7 @@ fn logEnded(id: []const u8, e: Failure, message: []const u8, prompt: usize, toke
 
 /// The reply to ``input``; ``sink`` hears the stream (null: not streamed). ``gone`` says the client left.
 pub fn run(srv: *Server, cx: *Cx, input: Input, sink: ?Sink, gone: anytype) Failure!Reply {
-    if (srv.config.compact_at == null) return generate(srv, cx, try prepare(srv, cx, input, gone), sink, gone);
+    if (srv.config.secure_request or srv.config.compact_at == null) return generate(srv, cx, try prepare(srv, cx, input, gone), sink, gone);
     return @import("compact.zig").run(srv, cx, input, sink, gone);
 }
 
@@ -528,7 +531,7 @@ const Generation = struct {
     fn cancel(g: *Generation) void {
         if (!g.engine_done) g.srv.engine.cancel(g.id);
         g.drain();
-        if (g.box.reason == .cancelled and g.reason == null) g.srv.metrics.disconnected(g.srv.io);
+        if (!g.srv.config.secure_request and g.box.reason == .cancelled and g.reason == null) g.srv.metrics.disconnected(g.srv.io);
     }
 
     /// Waits for the engine's own end, so the request it holds may be freed.
@@ -708,11 +711,11 @@ const Generation = struct {
             .runtime = .{ .object = runtime },
             .speculative = .{ .object = spec },
         };
-        if (std.mem.eql(u8, reason, "length") and thinking and reply_text.pyStrip(content).len == 0)
+        if (!g.srv.config.secure_request and std.mem.eql(u8, reason, "length") and thinking and reply_text.pyStrip(content).len == 0)
             log.line("warning: a reply reached max_tokens while still thinking, so its content is empty and its text is all in reasoning_content; raise max_tokens, or send chat_template_kwargs {{\"enable_thinking\": false}} (server: --no-thinking)", .{});
         var cycle_text: [32]u8 = undefined;
         const cycle = if (s.loop_period) |period| std.fmt.bufPrint(&cycle_text, " loop=period:{d}", .{period}) catch "" else "";
-        log.line("done {s} prompt={d} cached={d} thinking={s} effort={s} tokens={d} sha={s} finish={s}{s} rounds={d} accepted={d}/{d}", .{ g.reply_id, prompt_len, reply.cached_tokens, if (thinking) "True" else "False", if (thinking) effort orelse "none" else "none", g.collected.items.len, sha, reason, cycle, s.rounds, s.accepted, s.drafted });
+        if (!g.srv.config.secure_request) log.line("done {s} prompt={d} cached={d} thinking={s} effort={s} tokens={d} sha={s} finish={s}{s} rounds={d} accepted={d}/{d}", .{ g.reply_id, prompt_len, reply.cached_tokens, if (thinking) "True" else "False", if (thinking) effort orelse "none" else "none", g.collected.items.len, sha, reason, cycle, s.rounds, s.accepted, s.drafted });
         return reply;
     }
 };
@@ -724,7 +727,7 @@ const StopHook = struct {
 
     fn check(ctx: *anyopaque, emitted: []const u32) bool {
         const h: *StopHook = @ptrCast(@alignCast(ctx));
-        var arena: std.heap.ArenaAllocator = .init(h.srv.gpa);
+        var arena: std.heap.ArenaAllocator = .init(h.srv.requestAllocator());
         defer arena.deinit();
         const tail = emitted[emitted.len -| h.stops.tail()..];
         const text = h.srv.text.decode(arena.allocator(), tail) catch return false;

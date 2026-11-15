@@ -50,6 +50,9 @@ pub const markov_tokens = @import("markov_tokens.zig");
 pub const draft = @import("draft.zig");
 pub const sampling = @import("sampling.zig");
 pub const model = @import("model.zig");
+pub const secure_state = @import("secure_state.zig");
+pub const secure_cluster = @import("secure_cluster.zig");
+pub const secure_policy = @import("secure_policy.zig");
 pub const lanes = @import("lanes.zig");
 pub const pool = @import("pool.zig");
 pub const spill_state = @import("spill_state.zig");
@@ -108,6 +111,8 @@ test {
     refAll(draft);
     refAll(sampling);
     refAll(model);
+    refAll(secure_state);
+    refAll(secure_cluster);
     refAll(lanes);
     refAll(pool);
     refAll(spill_state);

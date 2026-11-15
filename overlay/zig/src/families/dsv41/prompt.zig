@@ -1,4 +1,5 @@
 // Modified for the DeepSeek 1017 TP3 integration; upstream copyrights retained. See CREDITS.md and provenance.json.
+// Modified for the DeepSeek 1017 TP3 integration; upstream copyrights retained. See CREDITS.md and provenance.json.
 //! A prompt chunk's forward on one TP rank, the served build's Model._forward_k (model.py) step by step on the served
 //! build's kernels: the streams of the chunk's tokens (embed_init), then a layer at a time the attention mixes (hc_pre, or
 //! hc_pre_pf with the previous layer's gathered MoE partials posted first), attention (attention_k), the gather of its
@@ -57,57 +58,7 @@ pub const raw_rows = 64;
 /// block init's size, then blocks of `block` bytes; a piece of `own` bytes or more takes a block of its own (the
 /// pool's caches), so a pool of any size costs what its pieces take plus at most one block. `used`: the pieces'
 /// bytes; `reserved`: the blocks'.
-pub const Arena = struct {
-    d: *const cuda.Driver,
-    blocks: [max_blocks]cuda.DeviceBuffer = undefined,
-    n: usize = 0,
-    cur: ?usize = null, // the block small pieces come from
-    at: usize = 0, // its next free byte
-    used: usize = 0,
-    reserved: usize = 0,
-
-    const max_blocks = 1024;
-    const block: usize = 256 << 20;
-    const own: usize = 64 << 20;
-
-    pub fn init(d: *const cuda.Driver, bytes: usize) !Arena {
-        var a: Arena = .{ .d = d };
-        if (bytes > 0) {
-            a.cur = try a.grow(bytes);
-            a.at = 0;
-        }
-        return a;
-    }
-
-    fn grow(a: *Arena, bytes: usize) !usize {
-        if (a.n == max_blocks) return error.ArenaFull;
-        a.blocks[a.n] = try cuda.DeviceBuffer.alloc(a.d, bytes);
-        a.reserved += bytes;
-        a.n += 1;
-        return a.n - 1;
-    }
-
-    pub fn deinit(a: *Arena) void {
-        for (a.blocks[0..a.n]) |*b| b.free();
-        a.n = 0;
-    }
-
-    pub fn take(a: *Arena, bytes: usize) !u64 {
-        if (bytes >= own) {
-            const i = try a.grow(std.mem.alignForward(usize, bytes, 256));
-            a.used += bytes;
-            return a.blocks[i].ptr;
-        }
-        var at = std.mem.alignForward(usize, a.at, 256);
-        if (a.cur == null or at + bytes > a.blocks[a.cur.?].len) {
-            a.cur = try a.grow(block);
-            at = 0;
-        }
-        a.at = at + bytes;
-        a.used += bytes;
-        return a.blocks[a.cur.?].ptr + at;
-    }
-};
+pub const Arena = @import("device_arena.zig").Arena;
 
 /// A RoPE kind's tables on the device: cos, sin fp32 [rows, rope_dim / 2] (ops.RopeTables' rows).
 pub const Rope = struct { cos: u64, sin: u64 };
@@ -289,6 +240,9 @@ pub const Chunk = struct {
     /// Every buffer for `cap` rows from `a`, the compressed layers' for chunks ending by position `tokens`; the scratch
     /// the served build zeros (or fills with -1) is set the same.
     pub fn init(e: *const Engine, a: *Arena, cap: usize, tokens: usize) !Chunk {
+        const previous_scope = a.scratch_scope;
+        a.scratch_scope = true;
+        defer a.scratch_scope = previous_scope;
         const c = e.c;
         const d = c.hidden;
         const hc = c.hc;
@@ -315,6 +269,7 @@ pub const Chunk = struct {
         ch.n = 0;
         ch.start = 0;
         ch.pending = false;
+        ch.every = 0;
         ch.ids = try a.take(cap * 8);
         ch.pos0 = try a.take(cap * 8);
         ch.pos1 = try a.take(cap * 8);
@@ -490,6 +445,10 @@ pub const Chunk = struct {
         var had: [128 * 128]u16 = undefined;
         exl3_prefill.hadamard(&had);
         try upload(e, ch.ws.h, &had, had.len * 2);
+        try a.keepScratch(ch.neg);
+        try a.keepScratch(ch.ws.h);
+        if (ch.every != 0) try a.keepScratch(ch.every);
+        try a.scratchValue(ch.xs.members, 0xff);
         return ch;
     }
 
@@ -566,6 +525,7 @@ pub fn decodeScratch(e: *const Engine, a: *Arena, ex: weights.Experts, slots: us
     inline for (.{ "xg", "xu", "xd", "z", "y", "cnt_gu", "cnt_d", "epoch", "ready", "ready_cnt", "ids", "count", "members" }, 0..) |f, j| {
         const ptr = try a.take(sz[j]);
         @field(sc, f) = ptr;
+        if (a.scratch_scope and j == 12) try a.scratchValue(ptr, 0xff);
         if (j == 12) try fill32(e, ptr, 0xffffffff, sz[j] / 4) else try fill(e, ptr, 0, sz[j]);
     }
     return sc;
@@ -1533,6 +1493,34 @@ pub const EngramHost = struct {
         };
     }
 
+    /// Readers must be joined first. These buffers are request-derived rows and
+    /// indices, not the immutable Engram tables or ordinary persistent KV.
+    pub fn eraseScratch(eh: *EngramHost) void {
+        std.crypto.secureZero(i64, eh.hashes);
+        std.crypto.secureZero(i64, eh.flat);
+        std.crypto.secureZero(u8, eh.w);
+        std.crypto.secureZero(u8, eh.s);
+        std.crypto.secureZero(u16, eh.rows);
+        for (0..2) |j| {
+            std.crypto.secureZero(u8, eh.ahead_w[j]);
+            std.crypto.secureZero(u8, eh.ahead_s[j]);
+            std.crypto.secureZero(u16, eh.ahead_rows[j]);
+            std.crypto.secureZero(i64, eh.ahead_flat[j]);
+            std.crypto.secureZero(i64, eh.lead_hashes[j]);
+        }
+        eh.ahead_start = std.math.maxInt(usize);
+        eh.ahead_n = 0;
+        eh.ahead_ready = @splat(false);
+        eh.ahead_err = null;
+        eh.lead_start = @splat(std.math.maxInt(usize));
+        eh.lead_n = @splat(0);
+        eh.lead_ready = @splat(false);
+        eh.lead_err = @splat(null);
+        eh.t_hash = 0; eh.t_read = 0; eh.t_decode = 0; eh.t_upload = 0; eh.calls = 0;
+        eh.lead_late = 0;
+        eh.p_rows = 0; eh.p_upload = 0; eh.p_mm = 0; eh.p_x = 0; eh.p_gate = 0; eh.p_calls = 0;
+    }
+
     /// TF_DS_ENGRAM_LEAD: each Engram layer's prompt reader gets a hash buffer of its own and its ring, rings[j].
     pub fn useLead(eh: *EngramHost, gpa: std.mem.Allocator, cap: usize, rings: [2]*engram_aio.Aio) !void {
         for (&eh.lead_hashes) |*h| h.* = try gpa.alloc(i64, cap * eh.hasher.layers * eh.hasher.cols());
@@ -1979,4 +1967,27 @@ fn rowAttentionFront(e: *const Engine, ch: *Chunk, lay: weights.Layer) !void {
     try e.ops.copyRows(e.s, ch.ga, stride, ch.qr, q * 2, q * 2, ch.n);
     try e.ops.copyRows(e.s, ch.ga + q * 2, stride, ch.y, hd * 2, hd * 2, ch.n);
     ch.row_stats.front_rows += r.count;
+}
+
+test "private erasure clears Engram hashes and lookahead without touching table identity" {
+    var indices: [24]i64 = @splat(123);
+    var read_bytes: [12]u8 = @splat(45);
+    var rows: [6]u16 = @splat(67);
+    var eh: EngramHost = undefined;
+    eh.hashes = indices[0..4]; eh.flat = indices[4..8];
+    eh.ahead_flat = .{ indices[8..12], indices[12..16] };
+    eh.lead_hashes = .{ indices[16..20], indices[20..24] };
+    eh.w = read_bytes[0..2]; eh.s = read_bytes[2..4];
+    eh.ahead_w = .{ read_bytes[4..6], read_bytes[6..8] };
+    eh.ahead_s = .{ read_bytes[8..10], read_bytes[10..12] };
+    eh.rows = rows[0..2]; eh.ahead_rows = .{ rows[2..4], rows[4..6] };
+    var tables: engram_io.Tables = undefined;
+    eh.tables = &tables;
+    eh.lo = 11; eh.hi = 17;
+    eh.eraseScratch();
+    for (indices) |v| try std.testing.expectEqual(@as(i64, 0), v);
+    for (read_bytes) |v| try std.testing.expectEqual(@as(u8, 0), v);
+    for (rows) |v| try std.testing.expectEqual(@as(u16, 0), v);
+    try std.testing.expect(eh.tables == &tables and eh.lo == 11 and eh.hi == 17);
+    try std.testing.expect(!eh.ahead_ready[0] and !eh.lead_ready[1]);
 }

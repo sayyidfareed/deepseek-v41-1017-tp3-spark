@@ -195,6 +195,9 @@ pub const HfText = struct {
     pub fn text(t: *HfText) model_text.Text {
         return .{ .ctx = t, .vtable = &.{
             .encode = encodeFn,
+            .encode_private = encodePrivate,
+            .render_private = renderPrivate,
+            .decode_private = decodePrivate,
             .decode = decodeFn,
             .token_id = tokenIdFn,
             .token_string = tokenStringFn,
@@ -239,6 +242,18 @@ pub const HfText = struct {
         return self(ctx).tok.decode(a, ids, false) catch |e| if (e == error.OutOfMemory) error.OutOfMemory else a.dupe(u8, "\u{fffd}");
     }
 
+    fn encodePrivate(ctx: *anyopaque, a: Allocator, s: []const u8, add_special: bool, scratch: Allocator) model_text.Error![]u32 {
+        const t = self(ctx);
+        const ids = t.tok.encodeWith(a, s, .{ .scratch = scratch }) catch |e| return if (e == error.OutOfMemory) error.OutOfMemory else error.Template;
+        if (!add_special or (t.prefix.len == 0 and t.suffix.len == 0)) return ids;
+        defer a.free(ids);
+        return std.mem.concat(a, u32, &.{ t.prefix, ids, t.suffix });
+    }
+
+    fn decodePrivate(ctx: *anyopaque, a: Allocator, ids: []const u32, scratch: Allocator) Allocator.Error![]u8 {
+        return self(ctx).tok.decodeWith(a, ids, false, scratch) catch |e| if (e == error.OutOfMemory) error.OutOfMemory else a.dupe(u8, "\u{fffd}");
+    }
+
     fn tokenIdFn(ctx: *anyopaque, piece: []const u8) ?u32 {
         return self(ctx).tok.specialTokenId(piece);
     }
@@ -262,6 +277,10 @@ pub const HfText = struct {
     }
 
     fn renderFn(ctx: *anyopaque, a: Allocator, messages: Value, options: model_text.RenderOptions, problem: *[]const u8) model_text.Error![]u8 {
+        return renderPrivate(ctx, a, messages, options, problem, std.heap.page_allocator);
+    }
+
+    fn renderPrivate(ctx: *anyopaque, a: Allocator, messages: Value, options: model_text.RenderOptions, problem: *[]const u8, scratch: Allocator) model_text.Error![]u8 {
         const t = self(ctx);
         const compiled = if (options.tools != null and t.tool_compiled != null) &t.tool_compiled.? else if (t.compiled) |*c| c else {
             problem.* = "this checkpoint has no chat template: send a completion prompt instead";
@@ -279,7 +298,7 @@ pub const HfText = struct {
         } else if (options.reasoning_effort) |e| try context.put(a, "reasoning_effort", .{ .string = e });
         var diag: template.Diag = .{};
         const tools: std.json.Value = if (options.tools) |tl| try toStd(a, tl) else .null;
-        const out = template.render(a, compiled, try toStd(a, messages), tools, .{ .object = context }, options.add_generation_prompt, &diag) catch |e| {
+        const out = template.renderWithScratch(a, compiled, try toStd(a, messages), tools, .{ .object = context }, options.add_generation_prompt, &diag, scratch) catch |e| {
             if (e == error.OutOfMemory) return error.OutOfMemory;
             problem.* = diag.msg;
             return error.Template;
@@ -326,4 +345,71 @@ pub fn toStd(a: Allocator, v: Value) Allocator.Error!std.json.Value {
             break :blk .{ .object = map };
         },
     };
+}
+
+
+test "secure tokenizer uses erasing scratch for encoding and decoding" {
+    const a = std.testing.allocator;
+    var t: HfText = .{
+        .gpa = a,
+        .arena = .init(a),
+        .tok = try tokenizer.parse(a,
+            \\{"model":{"type":"BPE","vocab":{"a":0,"b":1,"ab":2},"merges":[["a","b"]]},"decoder":{"type":"ByteLevel"}}
+        ),
+    };
+    defer t.arena.deinit();
+    defer t.tok.deinit();
+    var bytes: [262144]u8 = @splat(0);
+    var fixed = std.heap.FixedBufferAllocator.init(&bytes);
+    var zero: @import("engine_api").ZeroFree = .{ .parent = fixed.allocator() };
+    var text = t.text();
+    text.private_scratch = zero.allocator();
+    const ids = try text.encode(a, "abab", false);
+    defer a.free(ids);
+    try std.testing.expectEqualSlices(u32, &.{2, 2}, ids);
+    try std.testing.expect(std.mem.allEqual(u8, &bytes, 0));
+    const decoded = try text.decode(a, ids);
+    defer a.free(decoded);
+    try std.testing.expectEqualStrings("abab", decoded);
+    try std.testing.expect(std.mem.allEqual(u8, &bytes, 0));
+    // A zero-capacity scratch allocator must fail, proving it was actually used.
+    var none: [0]u8 = .{};
+    var empty = std.heap.FixedBufferAllocator.init(&none);
+    text.private_scratch = empty.allocator();
+    try std.testing.expectError(error.OutOfMemory, text.encode(a, "abab", false));
+    try std.testing.expectError(error.OutOfMemory, text.decode(a, ids));
+    text.private_scratch = null;
+    const ordinary = try text.encode(a, "abab", false);
+    defer a.free(ordinary);
+    try std.testing.expectEqualSlices(u32, ids, ordinary);
+}
+
+
+test "secure template erases intermediate text on success and template failure" {
+    const a = std.testing.allocator;
+    var t: HfText = .{
+        .gpa = a,
+        .arena = .init(a),
+        .tok = undefined,
+        .compiled = try template.compile(a, "{{ messages[0].content | upper }}", null),
+    };
+    defer t.arena.deinit();
+    defer t.compiled.?.deinit();
+    var request = std.heap.ArenaAllocator.init(a);
+    defer request.deinit();
+    const out = request.allocator();
+    const messages = (try json.parse(out, "[{\"role\":\"user\",\"content\":\"synthetic-private-text\"}]")).ok;
+    var bytes: [1048576]u8 = @splat(0);
+    var fixed = std.heap.FixedBufferAllocator.init(&bytes);
+    var zero: @import("engine_api").ZeroFree = .{ .parent = fixed.allocator() };
+    var text = t.text();
+    text.private_scratch = zero.allocator();
+    var problem: []const u8 = "";
+    const rendered = try text.render(out, messages, .{}, &problem);
+    try std.testing.expectEqualStrings("SYNTHETIC-PRIVATE-TEXT", rendered);
+    try std.testing.expect(std.mem.allEqual(u8, &bytes, 0));
+    t.compiled.?.deinit();
+    t.compiled = try template.compile(a, "{{ raise_exception(messages[0].content) }}", null);
+    try std.testing.expectError(error.Template, text.render(out, messages, .{}, &problem));
+    try std.testing.expect(std.mem.allEqual(u8, &bytes, 0));
 }

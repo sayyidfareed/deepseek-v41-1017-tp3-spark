@@ -65,6 +65,8 @@ fn raiseOpenFileLimit() ?[2]u64 {
 
 /// What a server needs besides its flags.
 pub const Setup = struct {
+    /// Internal only; production activation waits for qualified backend cleanup.
+    secure_request: bool = false,
     engine: api.Engine,
     text: model_text.Text,
     served: []const u8,
@@ -100,6 +102,7 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
         std.debug.print("tensorfold: {s}\n", .{if (problem.len > 0) problem else "API key file cannot be opened safely"});
         return 1;
     };
+    defer store.deinit();
     if (!store.enabled() and !auth.loopback(args.host)) log.line("warning: non-loopback server has no API key; requests are open", .{});
     var ids: std.ArrayList([]const u8) = .empty;
     for ([_][]const []const u8{ &.{s.served}, args.alias }) |group| for (group) |raw| {
@@ -113,7 +116,11 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
         std.debug.print("tensorfold: TENSORFOLD_SEED_SALT={s}: an integer\n", .{t});
         return 1;
     } else 0;
+    var gate: @import("secure_gate.zig").Gate = .{ .io = io, .engine = s.engine, .shared = s.engine.vtable.secure_shared };
+    const secure_host = env(s, "TF_SECURE_HOST");
     const config: server_mod.Config = .{
+        .secure_request = s.secure_request,
+        .gate = if (secure_host != null or s.secure_request) &gate else null,
         .served_name = s.served,
         .model_ids = ids.items,
         .default_max_tokens = args.max_tokens,
@@ -142,6 +149,15 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
         return 1;
     };
     defer srv.deinit();
+    const secure = if (secure_host) |host| blk: {
+        const key = env(s, "TF_SECURE_KEY_FILE") orelse return 1;
+        const port = std.fmt.parseInt(u16, env(s, "TF_SECURE_PORT") orelse "8889", 10) catch return 1;
+        break :blk @import("secure_listener.zig").Secure.start(gpa, io, s.engine, s.text, config, host, port, key) catch {
+            log.line("secure listener could not establish protected serving", .{});
+            return 1;
+        };
+    } else null;
+    defer if (secure) |listener| listener.stop();
     if (args.loop_guard and !srv.info.loop_guard) {
         std.debug.print("tensorfold: --loop-guard is not supported by this native engine\n", .{});
         return 2;
