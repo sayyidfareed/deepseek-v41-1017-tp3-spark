@@ -30,7 +30,7 @@ The stock Mia checkpoint remains the default input. To reproduce the optional ab
 
 `tools/export/patch_rank.py` reads an existing verified TP3 rank cache and writes a separate candidate. It requires the baseline and overlay SHA256 values, verifies the 104 attention source tensors and 78 native slices, preserves every other byte including the F16 draft confidence head, refuses an existing output, and retains a 50 GiB disk reserve. Use `--help` for its required paths and hash arguments; it is a dry run unless `--write` is supplied. Repeat for all three ranks. No download, live-file replacement or service change is performed by the tool.
 
-Keep the stock caches for rollback. Use separate spill/cache namespaces and a graph-profile identity for the changed weights; an old stock-model cache is not compatible merely because its shapes match. Qualify output quality, speculation and speed on the actual overlay. The earlier benchmark table used stock weights; the November 14 table used this variant.
+Keep the stock caches for rollback and use separate spill/cache namespaces for the changed weights. Add a top-level `"graph_profile_id": "mia1017-eaq29-tp3-keys-<overlay-sha256>"` to your private `local/cluster.json`, replacing `<overlay-sha256>` with the verified overlay hash. Use the same config to render all three ranks. For stock weights, omit `graph_profile_id` to use the stock default. Qualify output quality, speculation and speed on the actual overlay. The earlier benchmark table used stock weights; the November 14 table used this variant.
 
 ### Runtime dependencies
 

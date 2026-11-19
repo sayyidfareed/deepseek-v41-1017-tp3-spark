@@ -45,8 +45,33 @@ class Packaging(unittest.TestCase):
             self.assertEqual(worker[pos+1:pos+3],[str(rank),'3'])
 
     def test_configuration_cannot_override_profile(self):
-        c=self.config();c['ranks'][0]['network_env']['TF_DS_POOL']='1'
-        with self.assertRaises(ValueError):launch.command(c,0)
+        for key in ('TF_DS_POOL', 'TF_DS_GRAPH_PROFILE_ID'):
+            with self.subTest(key=key):
+                config = self.config()
+                config['ranks'][0]['network_env'][key] = 'override'
+                with self.assertRaises(ValueError):
+                    launch.command(config, 0)
+
+    def test_graph_profile_id_is_shared_across_ranks(self):
+        config = self.config()
+        default_env = json.loads((ROOT / 'config/profile.json').read_text())['env']
+        stock_id = default_env['TF_DS_GRAPH_PROFILE_ID']
+        graph_profile_id = 'mia1017-eaq29-tp3-keys-example'
+        for rank in range(3):
+            with self.subTest(rank=rank):
+                self.assertIn(f'TF_DS_GRAPH_PROFILE_ID={stock_id}', launch.command(config, rank))
+                overridden = launch.command({**config, 'graph_profile_id': graph_profile_id}, rank)
+                self.assertEqual(
+                    [arg for arg in overridden if arg.startswith('TF_DS_GRAPH_PROFILE_ID=')],
+                    [f'TF_DS_GRAPH_PROFILE_ID={graph_profile_id}'],
+                )
+
+    def test_invalid_graph_profile_ids_are_refused(self):
+        config = self.config()
+        for value in (None, 123, '', ' ', 'x\0y', 'é' * 257):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    launch.command({**config, 'graph_profile_id': value}, 0)
 
     def test_example_cannot_be_launched_as_is(self):
         with self.assertRaises(ValueError):launch.command(json.loads((ROOT/'config/cluster.example.json').read_text()),0)

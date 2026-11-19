@@ -23,6 +23,11 @@ def command(config, rank):
     env.update(local['network_env'])
     if any(not k.startswith('NCCL_') for k in local['network_env']):
         raise ValueError('Only NCCL settings belong in network_env')
+    graph_profile_id = config.get('graph_profile_id', env['TF_DS_GRAPH_PROFILE_ID'])
+    if (not isinstance(graph_profile_id, str) or not graph_profile_id.strip()
+            or '\0' in graph_profile_id or len(graph_profile_id.encode('utf-8')) > 512):
+        raise ValueError('graph_profile_id must be a nonblank string of at most 512 UTF-8 bytes without NUL')
+    env['TF_DS_GRAPH_PROFILE_ID'] = graph_profile_id
     env.update(TF_DS_RANK_CACHE='/rank-cache', TF_DS_RANK_CACHE_SHA=local['rank_cache_sha256'],
                TF_DS_KIT='/runtime/kit', TF_DS_ENGRAM='/engram',
                TF_DS_TOKEN_MAP='/runtime/dsv41_token_map.json')
